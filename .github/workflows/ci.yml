@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FOUNDRY_PROFILE: default
+  SOLANA_VERSION: v3.1.14
+  ANCHOR_VERSION: 1.1.2
+
+jobs:
+  evm:
+    name: EVM (forge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: evm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Versions
+        run: forge --version
+
+      - name: Format check
+        run: forge fmt --check
+
+      - name: Build
+        run: forge build --sizes
+
+      - name: Test
+        run: forge test -vvv
+
+  solana:
+    name: SVM (anchor)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins 1.89.0; rustup honours it automatically.
+      - name: Rust components
+        run: |
+          rustup show
+          rustup component add rustfmt clippy
+
+      - name: Cache cargo + platform-tools + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/solana
+            solana/target
+          key: svm-${{ runner.os }}-${{ env.SOLANA_VERSION }}-${{ env.ANCHOR_VERSION }}-${{ hashFiles('solana/Cargo.lock') }}
+          restore-keys: |
+            svm-${{ runner.os }}-${{ env.SOLANA_VERSION }}-${{ env.ANCHOR_VERSION }}-
+
+      - name: Install Solana CLI
+        run: |
+          curl -sSfL "https://release.anza.xyz/${SOLANA_VERSION}/install" | sh -s
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL -o "$HOME/.local/bin/anchor" \
+            "https://github.com/coral-xyz/anchor/releases/download/v${ANCHOR_VERSION}/anchor-${ANCHOR_VERSION}-x86_64-unknown-linux-gnu"
+          chmod +x "$HOME/.local/bin/anchor"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          solana --version
+          anchor --version
+          cargo --version
+
+      # Anchor.toml references a provider wallet; anchor build reads the config even
+      # though it never signs anything here.
+      - name: Keypair
+        run: |
+          mkdir -p ~/.config/solana
+          [ -f ~/.config/solana/id.json ] || solana-keygen new --no-bip39-passphrase -s -o ~/.config/solana/id.json
+
+      - name: Format check
+        run: cargo fmt --check
+
+      # `anchor build` MUST precede `cargo test`: the litesvm suite pulls the BPF ELF
+      # in with include_bytes!, so a missing artifact means the tests do not compile.
+      - name: Anchor build
+        run: anchor build
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
