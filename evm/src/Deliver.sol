@@ -8,7 +8,25 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 /// @notice An outcome verifier: it forwards the entire balance it is *already holding* of a given
 ///         asset to a recipient, and reverts unless that balance meets a caller-supplied floor.
 ///
-/// @dev ## What this contract is
+/// @dev ## Why this exists
+///
+///      This is the **last step of a swap route**. A route is a chain of components nobody here
+///      wrote — an aggregator, a bridge, an AMM hop, an RFQ filler — each with its own notion of
+///      slippage, its own `minOut` semantics, and sometimes no guarantee at all. Rather than trust
+///      each provider's promise, every route ends by depositing its output into this contract, and
+///      the floor is enforced once, at the end, on the amount that actually arrived.
+///
+///      That is why it knows nothing about swaps: the guarantee has to hold *regardless* of what
+///      ran in front of it. Adding or reordering providers changes nothing about how delivery is
+///      enforced. And because the check happens once on the real output, the intermediate hops'
+///      own slippage settings stop being a safety property — if the route under-delivers, this
+///      step reverts and the user keeps their input.
+///
+///      **The guarantee, stated exactly:** if the call does not revert, the recipient was sent the
+///      entire balance this contract held of that asset, and that balance was at least `min`. The
+///      two WARNINGs below are what that does not cover.
+///
+///      ## What this contract is
 ///
 ///      This is a pass-through, not a vault, not a router, not a swapper. The intended flow is:
 ///
@@ -29,10 +47,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///      primitive, not an oversight. A consequence worth stating plainly: **any balance sitting in
 ///      this contract is unconditionally claimable by the next caller.** Never park funds here.
 ///
-///      ## `min` is a floor on what arrived, not slippage
+///      ## `min` is a floor on what arrived
 ///
-///      `min` is not swap slippage and this contract performs no swap. It is purely a lower bound on
-///      the balance held at call time.
+///      This contract performs no swap and cannot tell slippage from a bridge fee; `min` is purely
+///      a lower bound on the balance held at call time. In the route, though, `min` *is* the
+///      route's final `minOut` — enforced once, at the end, on the real output.
 ///
 ///      ## Permissionless by design
 ///
@@ -42,6 +61,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///      Access control here would not add safety; it would only move the trust assumption. If a
 ///      caller passes a wrong `recipient`, that is the caller's bug, and this contract will happily
 ///      execute it.
+///
+///      **Consequence — fund and deliver in ONE transaction.** A balance sitting here between
+///      transactions does not merely sit at risk; it *belongs* to whoever calls next, for a
+///      recipient of their choosing, and calling `deliverToken(token, self, 0)` against it is a
+///      valid in-spec use of this contract by anyone. If a route deposits output in one
+///      transaction and delivers in another, the funds are gone in between. Pinned by
+///      `test_AnyoneCanDivertAStrandedBalance`. See `docs/INTEGRATING.md`.
 ///
 ///      ## WARNING — fee-on-transfer, rebasing, and hook tokens can under-deliver
 ///

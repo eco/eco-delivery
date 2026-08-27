@@ -1,13 +1,83 @@
-# eco-delivery — a dual-VM outcome verifier
+# EcoDelivery
 
-A minimal contract that **delivers tokens it is already holding** to a recipient, and reverts unless
-the delivered amount meets a caller-supplied minimum. One implementation for EVM
-(Foundry/Solidity), one for SVM/Solana (Anchor/Rust). They are two encodings of the same primitive
-and are meant to be reasoned about together.
+**The last step of every swap route.** Whatever a route produces, EcoDelivery is where it lands —
+and nothing leaves unless it clears the floor the user was promised.
+
+One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust). Two encodings of
+one primitive, kept behaviourally identical on purpose.
 
 > **Not audited, not deployed.** Nothing here claims otherwise.
 
+- [Why this exists](#why-this-exists) · [The guarantee](#the-guarantee) ·
+  [**Integration guide →**](docs/INTEGRATING.md) · [**EVM ↔ SVM parity map →**](PARITY.md)
+
 ---
+
+## Why this exists
+
+A swap route is a chain of things you did not write. An aggregator, a bridge, an AMM hop, an RFQ
+filler, a market maker's private endpoint. Each has its own notion of slippage, its own `minOut`
+semantics, its own failure modes — and some have no guarantee at all. Auditing every provider's
+promise, for every route, forever, does not scale.
+
+So don't. Put the guarantee at the end instead.
+
+```
+  user is quoted:  "≥ 1000 USDC to 0xabc…"
+        │
+        ├──► provider A  (bridge)     ─┐
+        ├──► provider B  (AMM hop)     ├── whatever these promise, we do not rely on it
+        └──► provider C  (RFQ fill)   ─┘
+                    │
+                    ▼   every route ends by depositing its output here
+        ┌───────────────────────────────────────┐
+        │  EcoDelivery                          │
+        │  deliverToken(USDC, 0xabc…, 1000e6)   │
+        │                                       │
+        │  held balance ≥ min ?                 │
+        │      no  ──►  revert, nothing moves   │
+        │      yes ──►  sweep 100% to 0xabc…    │
+        └───────────────────────────────────────┘
+                    ▲
+          all of it inside ONE transaction
+```
+
+The contract itself knows nothing about swaps. It reads a balance, checks a floor, forwards
+everything. That ignorance is the feature: **it works the same regardless of what ran in front of
+it**, so adding a new provider to the route changes nothing about how delivery is enforced.
+
+One consequence worth internalising: because the check happens once, at the end, on the *actual*
+output, the intermediate hops' own slippage settings stop being a safety property. Set them however
+you like. If the route under-delivers, the last step reverts and the user keeps their input.
+
+## The guarantee
+
+Stated precisely, because "guaranteed" is a word worth being exact about:
+
+> **If the call does not revert, the recipient was sent the entire balance this contract held of
+> that asset, and that balance was at least `min`.**
+
+Two things that guarantee does *not* cover. Both are deliberate, both are pinned by tests, and both
+are described in full under [Security notes](#security-notes):
+
+1. **That the recipient *received* ≥ `min`.** The check reads the balance held *before* the
+   transfer. An asset that takes a cut in transit — a fee-on-transfer ERC-20, a Token-2022
+   `TransferFee` mint, a rebasing token — can pass the check and still credit the recipient less.
+   Price the fee into `min`, or don't route that asset through here.
+2. **Anything at all, if funding and delivery are separate transactions.** See below — this is the
+   one integration rule that matters.
+
+### The one rule: fund and deliver atomically
+
+This contract is permissionless and sweeps its whole balance to a caller-chosen recipient. A balance
+sitting in it between transactions belongs to **whoever calls next**, for a recipient of *their*
+choosing. That is not a flaw; it is what makes the contract stateless and trust-free. But it means:
+
+> **The swap and the delivery must be in the same transaction.** If your route deposits output in
+> transaction 1 and calls `deliverToken` in transaction 2, anyone can take the funds in between.
+
+Pinned by `test_AnyoneCanDivertAStrandedBalance`. The [integration guide](docs/INTEGRATING.md) shows
+how to compose it correctly on both VMs.
 
 ## The primitive
 
@@ -22,18 +92,18 @@ function deliverToken(IERC20 token, address recipient, uint256 min) external {
 Five properties define it. All five hold on both VMs.
 
 - **Sweep, not amount.** There is no `amount` parameter. The contract sends its *entire* balance of
-  the asset. Whatever arrived is what gets delivered — that is the point, not an oversight.
-- **`min` is a floor on what arrived**, not slippage on a swap. Nothing here swaps. The contract
-  knows nothing about how the balance got there; it asserts a lower bound and forwards.
+  the asset. Whatever the route produced is what gets delivered — that is the point, not an
+  oversight. It is also why upstream hops cannot silently retain a slice.
+- **`min` is a floor on what arrived.** The contract performs no swap and cannot tell slippage from
+  a bridge fee. In the route, though, `min` *is* the route's final `minOut` — enforced once, at the
+  end, on the real output.
 - **Stateless and permissionless.** No owner, no storage, no allowlist, no pause. Anyone may call,
   and the caller chooses the recipient. Safety comes entirely from the caller binding
-  `(asset, recipient, min)` upstream — typically an intent or settlement system. Access control here
-  would not add safety, only relocate the trust assumption.
-- **Holds no funds between calls.** It is a pass-through, never a vault. Any balance sitting in it is
-  unconditionally claimable by the next caller, for a recipient of that caller's choosing. That is
-  intended, and it means **you must never park funds here**.
+  `(asset, recipient, min)` upstream. Access control here would not add safety, only relocate the
+  trust assumption.
+- **Holds no funds between calls.** A pass-through, never a vault. See [the one rule](#the-one-rule-fund-and-deliver-atomically).
 - **Verification is post-hoc.** The check reads a balance already held. The contract never pulls
-  funds in. Callers fund it first, then call.
+  funds in. Fund it first, then call.
 
 ## The two implementations
 
@@ -47,12 +117,12 @@ Five properties define it. All five hold on both VMs.
 | Transfer | `SafeERC20.safeTransfer` | `transfer_checked` CPI signed with the PDA seeds |
 | Failure on the floor | `error BalanceBelowMin(uint256 balance, uint256 min)` | Anchor `6000`, message `"deliver: balance below min"` |
 | Token programs | Any ERC-20, including USDT-style non-standard ones | SPL Token and Token-2022 (**not** `TransferHook` mints) |
-| Tests | 50, `forge test` | 21, `cargo test` |
+| Tests | 50, `forge test` | 23, `cargo test` |
 
 The error *message* is deliberately the same string on both sides so the two read identically.
 
-**`PARITY.md` is the authoritative map** of what matches, what cannot match, and which EVM test
-cases have a Solana counterpart. Read it before assuming the two are interchangeable.
+**[`PARITY.md`](PARITY.md) is the authoritative map** of what matches, what cannot match, and which
+EVM test cases have a Solana counterpart. Read it before assuming the two are interchangeable.
 
 ## Build and test
 
@@ -81,7 +151,7 @@ Dependencies are git submodules — clone with `--recurse-submodules`, or run
 ```bash
 cd solana
 anchor build                          # REQUIRED before cargo test
-cargo test                            # 21 tests
+cargo test                            # 23 tests, incl. 768 proptest cases
 cargo fmt --check && cargo clippy --all-targets
 ```
 
@@ -89,6 +159,16 @@ cargo fmt --check && cargo clippy --all-targets
 and pull the ELF in with `include_bytes!(…/deploy/deliver.so)`; a stale or missing artifact means
 you are not testing what you think you are. `Anchor.toml` sets `test = "cargo test"`, so
 `anchor test` runs the same suite without needing a local validator.
+
+## Documentation
+
+| Document | What it is for |
+|---|---|
+| [`docs/INTEGRATING.md`](docs/INTEGRATING.md) | **Start here to build on it.** How to compose the delivery atomically, how to choose `min`, what each failure mode means. |
+| [`PARITY.md`](PARITY.md) | EVM ↔ SVM behaviour and test map. Every divergence, stated as a divergence. |
+| [`evm/README.md`](evm/README.md) | EVM interface reference. |
+| [Security notes](#security-notes) | The two accepted hazards, in full. Read before integrating. |
+| Doc comments | `evm/src/Deliver.sol` and `solana/programs/deliver/src/lib.rs` carry the same warnings inline. |
 
 ## Layout
 
@@ -101,22 +181,23 @@ evm/test/DeliverNonStandardTokens.t.sol   USDT-style no-return, false-returning,
 evm/test/DeliverReentrancy.t.sol          hook-token and native recipient re-entry
 evm/test/mocks/                           token and recipient mocks
 
-solana/programs/deliver/src/lib.rs                        program docs + entry points
+solana/programs/deliver/src/lib.rs                         program docs + entry points
 solana/programs/deliver/src/instructions/deliver_token.rs  the SPL / Token-2022 sweep
 solana/programs/deliver/src/instructions/deliver_sol.rs    the lamport sweep
-solana/programs/deliver/tests/deliver.rs                   the litesvm suite
+solana/programs/deliver/tests/deliver.rs                   the litesvm suite, including proptest fuzzing
 
+docs/INTEGRATING.md                       integration guide
 PARITY.md                                 EVM ↔ SVM behaviour and test map
 ```
 
 ---
 
-## SECURITY NOTES
+## Security notes
 
 Read these before integrating. Both are **deliberate design choices**, both are pinned by tests so
 they cannot regress silently, and both can move funds in ways a careless caller will not expect.
 
-### (a) The pre-transfer check means fee-taking tokens can under-deliver relative to `min`
+### (a) The pre-transfer check means fee-taking assets can under-deliver relative to `min`
 
 `min` is checked against the balance the contract **holds before the transfer** — never against the
 amount the recipient actually ends up with. There is no post-transfer balance-delta assertion on
@@ -126,8 +207,10 @@ either VM.
 recipient receives strictly less than `min`, and the call still succeeds.** Nothing detects it, and
 no revert is raised.
 
-This covers fee-on-transfer ERC-20s, rebasing tokens, tokens with skimming hooks, and Token-2022
-mints carrying a `TransferFee` extension. It is not a theoretical edge:
+This matters most in exactly the setting this contract is built for: a route whose last hop is an
+asset with a transfer fee. The route-level guarantee is only as good as the asset's willingness to
+move what it says it moves. It covers fee-on-transfer ERC-20s, rebasing tokens, tokens with skimming
+hooks, and Token-2022 mints carrying a `TransferFee` extension. It is not a theoretical edge:
 
 - EVM — `test_Hole_FeeOnTransferTokenCanDeliverLessThanMin`: 1% fee token, balance exactly `min`,
   recipient credited `0.99 * min`. No revert.
@@ -170,7 +253,8 @@ so `deliver_token` can never be tricked into a lamport sweep.
   `Pubkey::default()` on SVM. Passing a wrong recipient burns the funds with no recovery path. That
   is the caller's bug by design; binding the recipient upstream is the caller's job.
 - **Any balance left in the contract is claimable by the next caller, for any recipient they
-  choose.** Pinned by `test_AnyoneCanDivertAStrandedBalance`. Never leave funds here between flows.
+  choose.** Pinned by `test_AnyoneCanDivertAStrandedBalance`. This is
+  [the one rule](#the-one-rule-fund-and-deliver-atomically).
 - **A zero balance with `min == 0` succeeds as a no-op** on both VMs and both asset paths, rather
   than reverting. It is a deliberate choice, matched across the two, and tested.
 - **On SVM, `deliver_token` can cost the caller ATA rent** (~0.002 SOL, unrefunded) when the

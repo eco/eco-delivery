@@ -7,12 +7,36 @@
 //! Its EVM twin is the same primitive in a different token model. The two are meant to be reasoned
 //! about together, so argument order and semantics are kept aligned.
 //!
+//! ## Why this exists
+//!
+//! This is the **last step of a swap route**. A route is a chain of components nobody here wrote —
+//! an aggregator, a bridge, an AMM hop, an RFQ filler — each with its own notion of slippage, its
+//! own `minOut` semantics, and sometimes no guarantee at all. Rather than trust each provider's
+//! promise, every route ends by depositing its output into the vault, and the floor is enforced
+//! once, at the end, on the amount that actually arrived.
+//!
+//! That is why it knows nothing about swaps: the guarantee has to hold *regardless* of what ran in
+//! front of it. And because the check happens once on the real output, the intermediate hops' own
+//! slippage settings stop being a safety property — if the route under-delivers, this step fails
+//! and the user keeps their input.
+//!
+//! **The guarantee, stated exactly:** if the instruction succeeds, the recipient was sent the
+//! entire balance the vault held of that asset, and that balance was at least `min`. The WARNINGs
+//! below are what that does not cover.
+//!
+//! **It only holds if funding and delivery are in the SAME TRANSACTION.** A balance sitting in the
+//! vault between transactions does not merely sit at risk; it *belongs* to whoever calls next, for
+//! a recipient of their choosing, and that is a valid in-spec use of this program by anyone. Put
+//! the route's swap instruction and `deliver_token` in one transaction, with the swap's destination
+//! set to the vault ATA. See `docs/INTEGRATING.md`.
+//!
 //! ## The primitive
 //!
 //! - **Sweep, not amount.** There is no `amount` argument. Every instruction sends the *entire*
 //!   balance it finds. Whatever arrived is what gets delivered.
-//! - **`min` is a floor on what arrived**, not slippage on a swap. This program knows nothing about
-//!   how the balance got there; it asserts a lower bound and forwards.
+//! - **`min` is a floor on what arrived.** This program knows nothing about how the balance got
+//!   there; it asserts a lower bound and forwards. In the route, though, `min` *is* the route's
+//!   final `minOut` — enforced once, at the end, on the real output.
 //! - **Stateless and permissionless.** No owner, no admin, no allowlist, no pause, and no program
 //!   state beyond the vault PDA itself (which stores no data — it is only ever a signing authority).
 //!   Any signer may call. Safety comes entirely from the caller binding `(mint, recipient, min)`

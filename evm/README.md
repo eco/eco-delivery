@@ -1,8 +1,14 @@
 # `Deliver` — EVM outcome verifier
 
-`Deliver` forwards the entire balance it is **already holding** of an asset to a recipient, and
-reverts unless that balance meets a caller-supplied minimum. It performs no swap and pulls no funds
-in. Callers fund it first, then call it.
+`Deliver` is the **last step of a swap route**: it forwards the entire balance it is already
+holding of an asset to a recipient, and reverts unless that balance meets a caller-supplied minimum.
+It performs no swap and pulls no funds in — the route deposits its output here, then calls it, in
+the same transaction.
+
+Why it exists, the guarantee it makes, and the two hazards it deliberately accepts are in the
+[root README](../README.md). How to wire it into a route is in
+[`docs/INTEGRATING.md`](../docs/INTEGRATING.md). **Funding and delivery must be atomic** — a balance
+left here between transactions belongs to whoever calls next.
 
 This is the EVM half of a dual-VM primitive; the Solana/Anchor half lives in `../solana` and is meant
 to be behaviorally identical.
