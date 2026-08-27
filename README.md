@@ -30,14 +30,16 @@ So don't. Put the guarantee at the end instead.
         └──► provider C  (RFQ fill)   ─┘
                     │
                     ▼   every route ends by depositing its output here
-        ┌───────────────────────────────────────┐
-        │  EcoDelivery                          │
-        │  deliverToken(USDC, 0xabc…, 1000e6)   │
-        │                                       │
-        │  held balance ≥ min ?                 │
-        │      no  ──►  revert, nothing moves   │
-        │      yes ──►  sweep 100% to 0xabc…    │
-        └───────────────────────────────────────┘
+        ┌─────────────────────────────────────────────┐
+        │  EcoDelivery                                │
+        │  deliverToken(USDC, 0xabc…, 1000e6)         │
+        │                                             │
+        │  held balance ≥ min ?                       │
+        │    no  ──►  revert — the WHOLE transaction  │
+        │             unwinds, every swap above with  │
+        │             it; the user keeps their input  │
+        │    yes ──►  sweep 100% of it to 0xabc…      │
+        └─────────────────────────────────────────────┘
                     ▲
           all of it inside ONE transaction
 ```
@@ -48,7 +50,8 @@ it**, so adding a new provider to the route changes nothing about how delivery i
 
 One consequence worth internalising: because the check happens once, at the end, on the *actual*
 output, the intermediate hops' own slippage settings stop being a safety property. Set them however
-you like. If the route under-delivers, the last step reverts and the user keeps their input.
+you like. If the route under-delivers, the last step reverts, [the whole transaction
+unwinds](#what-a-revert-actually-does), and the user keeps their input.
 
 ## The guarantee
 
@@ -78,6 +81,30 @@ choosing. That is not a flaw; it is what makes the contract stateless and trust-
 
 Pinned by `test_AnyoneCanDivertAStrandedBalance`. The [integration guide](docs/INTEGRATING.md) shows
 how to compose it correctly on both VMs.
+
+### What a revert actually does
+
+Atomicity is also what makes failure safe, so it is worth being exact about what "revert" means here.
+It is **not** a failed delivery that leaves the route half-finished:
+
+> A revert unwinds the **entire transaction** — every swap, hop and fill in it — not just this step.
+
+The user does not end up holding some intermediate asset, and does not end up with output stranded
+somewhere they have to go rescue. Their input tokens never left their wallet.
+
+| On a revert | What happens to it |
+|---|---|
+| Every swap in this transaction | Undone, as if never submitted |
+| The user's input tokens | Never left the wallet |
+| The output deposited into EcoDelivery | Unwound with everything else — there is no stranded balance to clean up, because the deposit itself is rolled back |
+| Gas / transaction fee | **Spent.** The only real cost of a failed delivery |
+| A cross-chain leg already settled in a *different* transaction | **Not undone.** Atomicity is per-transaction and per-chain |
+
+**EVM footgun:** all of this holds only if you let the revert propagate. A settlement contract that
+wraps the delivery in `try/catch`, or makes a low-level `call` and ignores the returned success flag,
+has *caught* the revert and broken the guarantee — the route still ran, and its output is now sitting
+in the contract for whoever calls next. On Solana this failure mode does not exist: a failed CPI
+aborts the whole transaction and the calling program cannot catch it.
 
 ## The primitive
 

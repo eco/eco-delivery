@@ -54,6 +54,33 @@ So:
 If your architecture cannot make the funding and the delivery atomic, EcoDelivery is the wrong
 component — you need something that escrows, and this contract explicitly does not.
 
+### What a revert actually does
+
+The same atomicity that protects the delivery is what makes failure safe. A revert here is **not** a
+failed last step that strands a half-finished route:
+
+> It unwinds the **entire transaction** — every swap, hop and fill in it — not just this step.
+
+The user does not end up holding an intermediate asset, and does not end up with output stranded
+somewhere they have to go rescue. Their input tokens never left their wallet.
+
+| On a revert | What happens to it |
+|---|---|
+| Every swap in this transaction | Undone, as if never submitted |
+| The user's input tokens | Never left the wallet |
+| The output deposited into EcoDelivery | Unwound with everything else — the deposit itself is rolled back, so there is no stranded balance to clean up |
+| Gas / transaction fee | **Spent.** The only real cost of a failed delivery |
+| A cross-chain leg already settled in a *different* transaction | **Not undone.** Atomicity is per-transaction and per-chain; a bridge that already paid out elsewhere stays paid out |
+
+**Do not swallow the revert.** On EVM, all of the above holds only if the revert propagates out of
+your transaction. If you wrap the delivery in `try/catch`, or make a low-level `call` and ignore the
+returned success flag, you have caught it — the route still ran, and its output is now sitting in
+EcoDelivery for whoever calls next. This is the same failure as splitting the flow across two
+transactions, arrived at from a different direction.
+
+On Solana this cannot happen: a failed CPI aborts the entire transaction and the calling program has
+no way to catch it.
+
 ## 2. EVM integration
 
 The route's final hop must send its output **to the EcoDelivery address**, and your settlement
