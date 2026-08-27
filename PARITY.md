@@ -181,8 +181,8 @@ All 50 EVM tests. Legend:
 | `test_UnrelatedCallerCanDeliver` | `deliver_token_is_permissionless_an_unrelated_caller_can_invoke_it` | ✅ |
 | `test_AnyoneCanDivertAStrandedBalance` | none | ⚠️ gap. The permissionless test proves an unrelated *caller*; nothing on SVM proves a stranded balance is claimable *for an attacker-chosen recipient*. The property holds by construction, but is unasserted. |
 | `test_ContractWritesNoStorage` | none directly | ⚠️ gap. `deliver_sol_fails_when_vault_pda_carries_data` is adjacent but asserts a different thing (the runtime refuses to drain a data-carrying account), not that the program leaves the PDA data-free. |
-| `testFuzz_BoundaryBalanceVersusMin` | none | ⚠️ gap. **There is no fuzzing anywhere in the SVM suite.** The boundary is pinned only at fixed points. |
-| `testFuzz_AnyCallerSweepsFullBalance` | none | ⚠️ gap. Same reason. |
+| `testFuzz_BoundaryBalanceVersusMin` | `fuzz_deliver_token_boundary_balance_versus_min` | ✅ proptest, 256 cases. Draws are weighted toward the boundary (±2 of `balance`) because two uniform 64-bit draws would essentially never produce `balance == min`. |
+| `testFuzz_AnyCallerSweepsFullBalance` | `fuzz_any_caller_sweeps_full_balance_to_any_recipient` | ✅ proptest, 256 cases, fuzzing both the balance and the full 32-byte recipient key space. |
 
 ### `test/DeliverNative.t.sol` — native ETH path (14)
 
@@ -201,7 +201,7 @@ All 50 EVM tests. Legend:
 | `test_RevertWhen_NativeRecipientRejectsZeroValueNoOp` | none | 🚫 Same reason. |
 | `test_DeliversToContractRecipientThatAcceptsEth` | none | 🚫 SVM draws no EOA/contract distinction for a lamport credit; a program-owned account receives exactly like any other, and `deliver_sol`'s tests already deliver to plain accounts. |
 | `test_UnrelatedCallerCanDeliverNative` | `deliver_sol_is_permissionless_an_unrelated_caller_can_invoke_it` | ✅ |
-| `testFuzz_NativeBoundaryBalanceVersusMin` | none | ⚠️ gap. No fuzzing on the SVM side. |
+| `testFuzz_NativeBoundaryBalanceVersusMin` | `fuzz_deliver_sol_boundary_balance_versus_min` | ✅ proptest, 256 cases. The recipient is pre-funded so the runtime's rent-exemption-on-create rule does not confound the `min` property. |
 
 ### `test/DeliverSentinels.t.sol` — the two native sentinels (10)
 
@@ -219,7 +219,7 @@ All 50 EVM tests. Legend:
 | `test_UnrelatedCallerCanUseSentinelPath` | `deliver_sol_is_permissionless_…` covers permissionless native delivery through the only path there is. |
 | `test_SentinelZeroBalanceWithZeroMinSucceedsAsNoOp` | `deliver_sol_zero_balance_with_min_zero_succeeds_as_a_noop` covers the no-op through the only path there is. |
 | `test_Hazard_UninitializedTokenSweepsEthInsteadOfReverting` | **The hazard itself does not exist on SVM** — an unset mint field cannot become a native sweep. The parallel hazard (an unvalidated recipient, `Pubkey::default()` included) does exist there, is documented in the module docs, and is **not tested**. ⚠️ |
-| `testFuzz_SentinelBoundaryBalanceVersusMin` | No sentinel, and no fuzzing. |
+| `testFuzz_SentinelBoundaryBalanceVersusMin` | No sentinel to fuzz. There is no token-address argument on this side to overload, so the dispatch this fuzzes cannot exist. |
 
 ### `test/DeliverNonStandardTokens.t.sol` — non-standard ERC-20s (7)
 
@@ -275,8 +275,10 @@ Known and accepted, in rough order of how much they matter:
 1. **Token-2022 `TransferHook` mints are unsupported and untested on SVM.** The EVM side handles
    arbitrary hook tokens through the generic ERC-20 interface; the SVM side fails outright. This is
    the only coverage asymmetry that could surprise an integrator reading "behaviorally identical".
-2. **No fuzzing on the SVM side.** The EVM suite fuzzes the `(balance, min)` boundary and the
-   caller/recipient space at 4096 runs each; the SVM suite pins fixed points only.
+2. **Fuzz depth differs by an order of magnitude.** Both suites now fuzz the same three
+   properties, but Foundry runs 4096 cases in-process while the SVM properties run 256 proptest
+   cases each — every SVM case boots a LiteSVM, loads the BPF ELF and lands several real
+   transactions (~9.6s for 768 cases). The properties are at parity; the sample depth is not.
 3. **No re-entrancy testing on SVM** — structurally impossible against this implementation, but it
    means the EVM suite's six-test proof has nothing backing it on the other side.
 4. **The unvalidated-recipient hazard is untested on SVM.** EVM pins its `address(0)` variant with

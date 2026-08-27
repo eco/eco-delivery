@@ -29,6 +29,7 @@ use {
         token_2022::spl_token_2022,
     },
     litesvm::{types::TransactionResult, LiteSVM},
+    proptest::prelude::*,
     solana_account::Account,
     solana_keypair::Keypair,
     solana_message::{Message, VersionedMessage},
@@ -797,4 +798,154 @@ fn deliver_token_fails_when_the_vault_ata_does_not_exist() {
         "expected the failure to name the vault token account, got {:#?}",
         e.meta.logs
     );
+}
+
+// =============================================================================================
+// property / fuzz tests — the SVM counterpart to the EVM suite's `testFuzz_*` cases
+// =============================================================================================
+//
+// Foundry fuzzes 4096 runs per property in-process against a fresh EVM state. Each case here boots
+// a whole LiteSVM, loads the BPF ELF and lands several real transactions, so the case count is
+// deliberately lower — the wall clock is dominated by VM setup, not by the property being checked.
+//
+// `testFuzz_SentinelBoundaryBalanceVersusMin` has no counterpart here and cannot have one: there is
+// no token-address argument on this side to overload with a sentinel, so `deliver_token` can never
+// be steered into the lamport path. See PARITY.md.
+
+const FUZZ_CASES: u32 = 256;
+
+/// `(balance, min)` pairs weighted toward the boundary.
+///
+/// Two independent uniform draws over a 64-bit space would essentially never produce
+/// `balance == min`, which is exactly the case the floor check turns on. So most draws straddle the
+/// boundary by ±2, with a small dense region and wide independent draws mixed in.
+fn balance_and_min() -> impl Strategy<Value = (u64, u64)> {
+    prop_oneof![
+        4 => (1u64..=u64::MAX / 4, -2i64..=2i64)
+            .prop_map(|(balance, delta)| (balance, balance.saturating_add_signed(delta))),
+        1 => (0u64..=8, 0u64..=8),
+        1 => (0u64..=u64::MAX / 4, 0u64..=u64::MAX / 4),
+    ]
+}
+
+/// The same shape for lamports, bounded to 100k SOL so airdrops stay in a realistic range.
+fn lamports_and_min() -> impl Strategy<Value = (u64, u64)> {
+    const MAX: u64 = 100_000 * LAMPORTS_PER_SOL;
+    prop_oneof![
+        4 => (1u64..=MAX, -2i64..=2i64)
+            .prop_map(|(balance, delta)| (balance, balance.saturating_add_signed(delta))),
+        1 => (0u64..=8, 0u64..=8),
+        1 => (0u64..=MAX, 0u64..=MAX),
+    ]
+}
+
+fn err_text(res: &TransactionResult) -> String {
+    res.as_ref()
+        .err()
+        .map(|e| format!("{:?} logs: {:?}", e.err, e.meta.logs))
+        .unwrap_or_default()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(FUZZ_CASES))]
+
+    /// Counterpart to `testFuzz_BoundaryBalanceVersusMin`.
+    ///
+    /// The property: the call succeeds iff `balance >= min`; success moves the *entire* balance and
+    /// leaves the vault at zero; failure moves nothing at all.
+    #[test]
+    fn fuzz_deliver_token_boundary_balance_versus_min((balance, min) in balance_and_min()) {
+        let mut f = spl_fixture();
+        f.fund_vault(balance);
+        let recipient = Pubkey::new_unique();
+        let recipient_ata = f.recipient_ata(&recipient);
+
+        let res = f.deliver(&recipient, min);
+        let rendered = err_text(&res);
+
+        if balance < min {
+            prop_assert!(res.is_err(), "balance {} < min {} must revert", balance, min);
+            prop_assert!(
+                rendered.contains(ERR_BALANCE_BELOW_MIN),
+                "expected {ERR_BALANCE_BELOW_MIN}, got {rendered}"
+            );
+            // A reverted delivery is atomic: the vault keeps everything and no ATA was created.
+            prop_assert_eq!(token_balance(&f.svm, &f.vault_ata), balance);
+            prop_assert!(!account_exists(&f.svm, &recipient_ata));
+        } else {
+            prop_assert!(res.is_ok(), "balance {} >= min {} must succeed: {rendered}", balance, min);
+            prop_assert_eq!(token_balance(&f.svm, &recipient_ata), balance);
+            prop_assert_eq!(token_balance(&f.svm, &f.vault_ata), 0);
+        }
+    }
+
+    /// Counterpart to `testFuzz_AnyCallerSweepsFullBalance`.
+    ///
+    /// Permissionless is a load-bearing property, not an accident: an arbitrary signer with no
+    /// relationship to the vault, the mint or the fixture payer sweeps the full balance to an
+    /// arbitrary recipient key.
+    #[test]
+    fn fuzz_any_caller_sweeps_full_balance_to_any_recipient(
+        balance in 0u64..=u64::MAX / 4,
+        recipient_bytes in any::<[u8; 32]>(),
+    ) {
+        let recipient = Pubkey::new_from_array(recipient_bytes);
+        // Delivering to the vault itself would make source and destination the same account.
+        prop_assume!(recipient != vault_authority());
+
+        let mut f = spl_fixture();
+        f.fund_vault(balance);
+
+        let stranger = funded_keypair(&mut f.svm, 10);
+        let ix = f.deliver_token_ix(&stranger.pubkey(), &recipient, balance);
+        let res = send(&mut f.svm, &[ix], &stranger, &[]);
+        let rendered = err_text(&res);
+
+        prop_assert!(res.is_ok(), "an unrelated caller must be able to deliver: {rendered}");
+        prop_assert_eq!(token_balance(&f.svm, &f.recipient_ata(&recipient)), balance);
+        prop_assert_eq!(token_balance(&f.svm, &f.vault_ata), 0);
+    }
+
+    /// Counterpart to `testFuzz_NativeBoundaryBalanceVersusMin`.
+    #[test]
+    fn fuzz_deliver_sol_boundary_balance_versus_min((balance, min) in lamports_and_min()) {
+        let mut svm = new_svm();
+        let caller = funded_keypair(&mut svm, 10);
+        let vault = vault_authority();
+
+        // The recipient is pre-funded so it already exists. A System transfer into a *new* account
+        // must leave that account rent-exempt, and that rule would otherwise confound this
+        // property at small sweep amounts — it is a separate concern from the `min` floor.
+        let recipient = Pubkey::new_unique();
+        let rent_exempt = svm.minimum_balance_for_rent_exemption(0);
+        svm.airdrop(&recipient, rent_exempt).unwrap();
+
+        if balance > 0 {
+            svm.airdrop(&vault, balance).unwrap();
+        }
+
+        let ix = deliver_sol_ix(&caller.pubkey(), &recipient, min);
+        let res = send(&mut svm, &[ix], &caller, &[]);
+        let rendered = err_text(&res);
+
+        let vault_lamports = |svm: &LiteSVM| svm.get_account(&vault).map(|a| a.lamports).unwrap_or(0);
+
+        if balance < min {
+            prop_assert!(res.is_err(), "balance {} < min {} must revert", balance, min);
+            prop_assert!(
+                rendered.contains(ERR_BALANCE_BELOW_MIN),
+                "expected {ERR_BALANCE_BELOW_MIN}, got {rendered}"
+            );
+            prop_assert_eq!(vault_lamports(&svm), balance);
+            prop_assert_eq!(svm.get_account(&recipient).unwrap().lamports, rent_exempt);
+        } else {
+            prop_assert!(res.is_ok(), "balance {} >= min {} must succeed: {rendered}", balance, min);
+            // The drain is total; the runtime reaps the emptied PDA.
+            prop_assert_eq!(vault_lamports(&svm), 0);
+            prop_assert_eq!(
+                svm.get_account(&recipient).unwrap().lamports,
+                rent_exempt + balance
+            );
+        }
+    }
 }
