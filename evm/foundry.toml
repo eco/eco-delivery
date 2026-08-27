@@ -1,0 +1,28 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+solc = "0.8.28"
+optimizer = true
+optimizer_runs = 1_000_000
+# `paris` avoids PUSH0 so the same bytecode deploys on L2s that lag the EVM spec.
+# This primitive is meant to exist at the same shape on every chain eco settles on.
+evm_version = "paris"
+bytecode_hash = "none"
+fs_permissions = [{ access = "read", path = "./out" }]
+
+[fmt]
+line_length = 110
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+multiline_func_header = "params_first"
+sort_imports = true
+
+[fuzz]
+runs = 4096
+
+[invariant]
+runs = 256
+depth = 64
