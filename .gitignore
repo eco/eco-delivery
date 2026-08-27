@@ -1,0 +1,21 @@
+# Foundry
+evm/out/
+evm/cache/
+evm/broadcast/
+evm/.gas-snapshot.tmp
+
+# Anchor / Solana
+solana/target/
+solana/.anchor/
+solana/test-ledger/
+solana/node_modules/
+**/*.rs.bk
+
+# Node
+node_modules/
+
+# Env / local
+.env
+.env.*
+!.env.example
+.DS_Store
