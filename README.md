@@ -192,6 +192,7 @@ you are not testing what you think you are. `Anchor.toml` sets `test = "cargo te
 | Document | What it is for |
 |---|---|
 | [`docs/INTEGRATING.md`](docs/INTEGRATING.md) | **Start here to build on it.** How to compose the delivery atomically, how to choose `min`, what each failure mode means. |
+| [`ts/README.md`](ts/README.md) | The `@eco-foundation/delivery` SDK — call builders for both VMs and the `min` arithmetic. |
 | [`PARITY.md`](PARITY.md) | EVM ↔ SVM behaviour and test map. Every divergence, stated as a divergence. |
 | [`evm/README.md`](evm/README.md) | EVM interface reference. |
 | [Security notes](#security-notes) | The two accepted hazards, in full. Read before integrating. |
@@ -213,9 +214,31 @@ solana/programs/deliver/src/instructions/deliver_token.rs  the SPL / Token-2022 
 solana/programs/deliver/src/instructions/deliver_sol.rs    the lamport sweep
 solana/programs/deliver/tests/deliver.rs                   the litesvm suite, including proptest fuzzing
 
+ts/src/evm.ts                             viem call builders + typed error decoding
+ts/src/svm.ts                             Solana instruction builders (no Anchor runtime)
+ts/src/min.ts                             the min ÷ (1 − fee) arithmetic
+ts/src/generated/                         ABI + IDL, generated from the contract builds
+ts/scripts/generate.mjs                   regenerator; `--check` fails CI on drift
+
 docs/INTEGRATING.md                       integration guide
 PARITY.md                                 EVM ↔ SVM behaviour and test map
+.github/workflows/ci.yml                  CI: forge, anchor, and SDK
 ```
+
+## SDK
+
+```bash
+npm install @eco-foundation/delivery
+```
+
+```ts
+import {minForTarget}       from "@eco-foundation/delivery";       // no runtime deps
+import {deliverTokenCall}   from "@eco-foundation/delivery/evm";   // needs viem
+import {deliverTokenIx}     from "@eco-foundation/delivery/svm";   // needs @solana/*
+```
+
+The ABI and IDL it ships are generated from the contract build output, and CI fails if they
+drift. See [`ts/README.md`](ts/README.md).
 
 ---
 

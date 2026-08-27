@@ -22,3 +22,7 @@ node_modules/
 
 # Claude Code local state
 .claude/
+
+# TypeScript SDK
+ts/node_modules/
+ts/dist/

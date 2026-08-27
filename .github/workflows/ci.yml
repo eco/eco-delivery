@@ -44,6 +44,10 @@ jobs:
       - name: Test
         run: forge test -vvv
 
+      # The published SDK's ABI is generated from this build output; fail if it is stale.
+      - name: SDK ABI drift
+        run: node ../ts/scripts/generate.mjs --check
+
   solana:
     name: SVM (anchor)
     runs-on: ubuntu-latest
@@ -110,3 +114,36 @@ jobs:
 
       - name: Test
         run: cargo test
+
+      # The published SDK's IDL is generated from this build output; fail if it is stale.
+      - name: SDK IDL drift
+        run: node ../ts/scripts/generate.mjs --check
+
+  ts:
+    name: SDK (typescript)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # Checks the encoders against ground truth derived outside the SDK: EVM selectors
+      # and sha256("global:<name>")[..8] Anchor discriminators.
+      - name: Test
+        run: npm test
