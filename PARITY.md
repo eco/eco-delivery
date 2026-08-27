@@ -5,7 +5,7 @@ caller-supplied floor.** This document records exactly where the two implementat
 they cannot, and which EVM test cases have a Solana counterpart.
 
 Nothing here is aspirational. Every "yes" below is backed by a test that runs in the committed
-suites (EVM: 50 tests, `forge test`; SVM: 21 tests, `cargo test`). Every gap is stated as a gap.
+suites (EVM: 50 tests, `forge test`; SVM: 23 tests, `cargo test`). Every gap is stated as a gap.
 
 - EVM: `evm/src/Deliver.sol`
 - SVM: `solana/programs/deliver/src/`
@@ -293,4 +293,5 @@ Known and accepted, in rough order of how much they matter:
 8. Neither side has an integration/fork test against a real deployment. All non-standard behaviour
    is exercised through local mocks (EVM) and litesvm's bundled program versions (SVM:
    `spl_token` 3.5.0, `spl_token_2022` 10.0.0, `spl_associated_token_account` 1.1.1).
-9. Neither side has a deploy script or CI. Nothing enforces these gates on push.
+9. Neither side has a deploy script. CI does run both suites plus the SDK on every push
+   (`.github/workflows/ci.yml`), so the gates above are enforced.
