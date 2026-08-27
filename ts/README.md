@@ -6,8 +6,11 @@ Call builders for both VMs, plus the `min` arithmetic that is easy to get wrong.
 See the [root README](../README.md) for what the contract is and
 [`docs/INTEGRATING.md`](../docs/INTEGRATING.md) for how to wire it into a route.
 
+> **Not published.** The package is marked `"private": true` so `npm publish` refuses it.
+> The contracts are unaudited and undeployed; remove that field when there is a release to make.
+
 ```bash
-npm install @eco-foundation/delivery
+npm install @eco-foundation/delivery   # once published
 ```
 
 `viem`, `@solana/web3.js` and `@solana/spl-token` are **optional** peer dependencies. The root

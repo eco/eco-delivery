@@ -1,7 +1,8 @@
 {
   "name": "@eco-foundation/delivery",
   "version": "0.1.0",
-  "description": "TypeScript SDK for EcoDelivery \u2014 the outcome verifier at the end of a swap route (EVM + Solana)",
+  "private": true,
+  "description": "TypeScript SDK for EcoDelivery — the outcome verifier at the end of a swap route (EVM + Solana)",
   "license": "MIT",
   "repository": {
     "type": "git",

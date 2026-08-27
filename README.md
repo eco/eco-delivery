@@ -227,8 +227,11 @@ PARITY.md                                 EVM ↔ SVM behaviour and test map
 
 ## SDK
 
+Not published yet — the package is marked `private` so `npm publish` refuses it, and the
+contracts are unaudited and undeployed. Consume it from the repo until there is a release.
+
 ```bash
-npm install @eco-foundation/delivery
+npm install @eco-foundation/delivery   # once published
 ```
 
 ```ts
