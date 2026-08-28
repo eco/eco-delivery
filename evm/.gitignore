@@ -2,10 +2,12 @@
 cache/
 out/
 
-# Ignores development broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/**/dry-run/
+# Broadcast logs are NOT committed. Foundry's template un-ignores them (`!/broadcast`) so real
+# deployment records get tracked, but a fork test writes records under the FORKED chain's id --
+# an anvil fork of Optimism produces broadcast/Deploy.s.sol/10/ that is indistinguishable from a
+# real mainnet deploy. Until something is genuinely deployed, ignoring the directory outright is
+# safer than committing a record that implies a deployment that never happened.
+/broadcast/
 
 # Docs
 docs/

@@ -30,7 +30,7 @@ suites (EVM: 50 tests, `forge test`; SVM: 23 tests, `cargo test`). Every gap is 
 | 12 | Amount width: `uint256` | `u64` | **No.** An SVM `min` above `u64::MAX` is unrepresentable. Not a practical limit (SPL supplies are `u64`), but it is a real signature difference. |
 | 13 | Stateless: no storage, no owner, no allowlist, no pause | Stateless: no program state; the vault PDA is never allocated data | **Yes.** |
 | 14 | Permissionless: any caller, caller picks the recipient | Permissionless: any signer, caller picks the recipient | **Yes**, with one cost asymmetry — the SVM caller may pay ATA rent. See §2.1. |
-| 15 | No events; the ERC-20 `Transfer` log is the outcome record | No events; the SPL `TransferChecked` instruction and balance change are the outcome record | **Yes**, same decision on both sides. |
+| 15 | No events; the ERC-20 `Transfer` log is the outcome record | No events; the SPL `TransferChecked` instruction and balance change are the outcome record | **Yes**, same decision on both sides — including the same gap: the *native* paths (`deliverNative`, `deliver_sol`) emit no log at all, so native deliveries are visible only in traces / balance deltas, never as a subscribable event. |
 | 16 | Recipient never validated, including `address(0)` | Recipient never validated, including `Pubkey::default()` | **Yes** as a policy. On SVM the hazard is *documented only*, not tested — see §3, EVM case 36. |
 | 17 | `min` checked **pre-transfer** against the held balance | `min` checked **pre-transfer** against the held balance | **Yes** — including the shared under-delivery hole. See §2.2. |
 | 18 | Zero balance + `min == 0` succeeds as a no-op (a transfer of 0) | Zero balance + `min == 0` succeeds as a no-op (a `transfer_checked` of 0 is still issued) | **Yes**, deliberately matched on both sides, on both the token and the native path. |
@@ -293,5 +293,6 @@ Known and accepted, in rough order of how much they matter:
 8. Neither side has an integration/fork test against a real deployment. All non-standard behaviour
    is exercised through local mocks (EVM) and litesvm's bundled program versions (SVM:
    `spl_token` 3.5.0, `spl_token_2022` 10.0.0, `spl_associated_token_account` 1.1.1).
-9. Neither side has a deploy script. CI does run both suites plus the SDK on every push
-   (`.github/workflows/ci.yml`), so the gates above are enforced.
+9. Both sides now have a deploy script (`evm/script/Deploy.s.sol`, `anchor run deploy-*`; see
+   `docs/DEPLOYING.md`), and CI runs both suites plus the SDK on every push
+   (`.github/workflows/ci.yml`). Nothing has been deployed to a real network.
