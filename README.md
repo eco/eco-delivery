@@ -3,6 +3,13 @@
 **The last step of every swap route.** Whatever a route produces, EcoDelivery is where it lands —
 and nothing leaves unless it clears the floor the user was promised.
 
+Stated exactly, because the difference matters: the floor is checked against the balance the
+contract **holds**, before the transfer. For ordinary assets that is the same thing as what the
+recipient receives. For an asset that takes a cut in transit — fee-on-transfer, rebasing, a
+Token-2022 `TransferFee` mint — it is not, and the recipient can be credited less than `min` while
+the call succeeds. That is a deliberate, tested carve-out, not an oversight; see
+[the guarantee](#the-guarantee) and [choosing `min`](docs/INTEGRATING.md#4-choosing-min).
+
 One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust). Two encodings of
 one primitive, kept behaviourally identical on purpose.
 
@@ -24,25 +31,38 @@ So don't. Put the guarantee at the end instead.
 
 ```
   user is quoted:  "≥ 1000 USDC to 0xabc…"
-        │
-        ├──► provider A  (bridge)     ─┐
-        ├──► provider B  (AMM hop)     ├── whatever these promise, we do not rely on it
-        └──► provider C  (RFQ fill)   ─┘
-                    │
-                    ▼   every route ends by depositing its output here
-        ┌─────────────────────────────────────────────┐
-        │  EcoDelivery                                │
-        │  deliverToken(USDC, 0xabc…, 1000e6)         │
-        │                                             │
-        │  held balance ≥ min ?                       │
-        │    no  ──►  revert — the WHOLE transaction  │
-        │             unwinds, every swap above with  │
-        │             it; the user keeps their input  │
-        │    yes ──►  sweep 100% of it to 0xabc…      │
-        └─────────────────────────────────────────────┘
-                    ▲
-          all of it inside ONE transaction
+
+  ┌─ ONE transaction ─────────────────────────────────────────────────────┐
+  │                                                                       │
+  │     ├──► AMM hop      ─┐                                              │
+  │     ├──► RFQ fill      ├── output lands INSIDE this transaction;      │
+  │     └──► aggregator   ─┘   whatever they promise, we do not rely on it│
+  │                 │                                                     │
+  │                 ▼   the route ends by depositing its output here      │
+  │     ┌─────────────────────────────────────────────┐                   │
+  │     │  EcoDelivery                                │                   │
+  │     │  deliverToken(USDC, 0xabc…, 1000e6)         │                   │
+  │     │                                             │                   │
+  │     │  held balance ≥ min ?                       │                   │
+  │     │    no  ──►  revert — the WHOLE transaction  │                   │
+  │     │             unwinds, every swap above with  │                   │
+  │     │             it; the user keeps their input  │                   │
+  │     │    yes ──►  sweep 100% of it to 0xabc…      │                   │
+  │     └─────────────────────────────────────────────┘                   │
+  └───────────────────────────────────────────────────────────────────────┘
+
+  A bridge cannot be the LAST hop. It pays out on the far chain in a
+  different transaction, so its output is already sitting in the contract
+  before your transaction starts — the exact case that makes the balance
+  claimable by anyone. A bridge belongs UPSTREAM of the atomic unit:
+  bridge in transaction 1, then swap → deliver atomically in transaction 2
+  on the destination chain.
 ```
+
+The dividing line the whole safety model rests on is not *which* providers you use — it is whether
+a provider's output lands **inside** your transaction or has **already paid out** before it starts.
+Anything in the first category can be trusted blindly, because the floor is checked after it.
+Anything in the second cannot be the last hop at all.
 
 The contract itself knows nothing about swaps. It reads a balance, checks a floor, forwards
 everything. That ignorance is the feature: **it works the same regardless of what ran in front of

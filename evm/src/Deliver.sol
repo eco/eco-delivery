@@ -103,8 +103,16 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///
 ///      ## Events
 ///
-///      None are emitted. The ERC-20 `Transfer` log already carries `(recipient, amount)`, which is
-///      the outcome an indexer needs; a second event would be redundant and cost gas.
+///      None are emitted. On the **ERC-20 path** that costs nothing: the token's own `Transfer` log
+///      already carries `(recipient, amount)`, which is the outcome an indexer needs, so a second
+///      event would be redundant and cost gas.
+///
+///      That rationale does **not** extend to the native path. `recipient.call{value: balance}("")`
+///      emits no log at all, so a native delivery leaves no event an indexer can read: there is no
+///      on-chain record that the floor was cleared, for whom, or for how much. Native deliveries
+///      are observable only through transaction traces. If you need to index them, index the traces
+///      or watch the recipient's balance — do not expect a log. The SVM side has the same shape;
+///      `deliver_sol` emits nothing either.
 contract Deliver {
     using SafeERC20 for IERC20;
 

@@ -81,9 +81,13 @@
 //!
 //! ## Other deliberate choices
 //!
-//! - **No events.** The SPL Token `Transfer`/`TransferChecked` instruction and the resulting balance
-//!   change already carry recipient and amount, which is the outcome an indexer needs. A second
-//!   event would be redundant. The EVM side omits events for the same reason.
+//! - **No events.** On `deliver_token` that costs nothing: the SPL Token `TransferChecked` CPI and
+//!   the resulting balance change are already the outcome record, so a program event would be
+//!   redundant. The EVM side omits events for the same reason.
+//!
+//!   The rationale does **not** extend to `deliver_sol`. A System Program lamport transfer emits no
+//!   program event, so a native delivery leaves nothing an indexer can subscribe to — it is visible
+//!   only in the transaction's account balance deltas. EVM's `deliverNative` has the identical gap.
 //! - **Zero balance with `min == 0` succeeds as a no-op.** The transfer is still issued, for exactly
 //!   zero, matching the EVM reference which calls `safeTransfer(recipient, 0)`.
 //! - **The vault token account is NOT closed after a sweep.** Its rent stays locked so the same

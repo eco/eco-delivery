@@ -43,11 +43,12 @@ contract Deploy is Script {
     /// @dev Salt discriminator. Bump on any interface change — see the CREATE3 note above.
     string constant DELIVER_VERSION = "ECO_DELIVERY_V1";
 
-    /// @dev Mirrors `Deliver.NATIVE_SENTINEL`; used to prove the deployed code is what we think.
+    /// @dev Mirrors `Deliver.NATIVE_SENTINEL`. A cheap first assertion only — {_verify} compares the
+    ///      full runtime code, because this constant alone does not identify the contract.
     address constant EXPECTED_NATIVE_SENTINEL = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     function run() external {
-        bytes32 rootSalt = vm.envBytes32("SALT");
+        bytes32 rootSalt = _rootSalt();
         address deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
 
         bytes32 salt = _contractSalt(rootSalt, DELIVER_VERSION);
@@ -76,8 +77,8 @@ contract Deploy is Script {
 
     /// @notice Print the address this deployer+salt resolves to on this chain, without broadcasting.
     function predictAddress() external view {
-        bytes32 salt = _contractSalt(vm.envBytes32("SALT"), DELIVER_VERSION);
-        address deployer = vm.addr(vm.envUint("PRIVATE_KEY"));
+        bytes32 salt = _contractSalt(_rootSalt(), DELIVER_VERSION);
+        address deployer = _deployer();
         address predicted = CREATE3_DEPLOYER.deployedAddress(bytes(""), deployer, salt);
 
         console.log("Chain ID       :", block.chainid);
@@ -91,8 +92,19 @@ contract Deploy is Script {
      *
      *      Worth doing precisely because CREATE3 ignores bytecode: a matching address proves only
      *      that the same deployer used the same salt, not that it deployed the same contract. This
-     *      is a cheap read that catches a salt collision with an older or different build before
-     *      anyone points a route at the address.
+     *      catches a salt collision with an older or different build before anyone points a route
+     *      at the address.
+     *
+     *      The code hash is the assertion that actually earns the error message. Reading
+     *      `NATIVE_SENTINEL()` alone would pass for *any* contract exposing that constant —
+     *      including a modified {Deliver} whose constant survived but whose `deliverToken` did not,
+     *      which is precisely the case this check exists to catch. It is kept as a friendly first
+     *      failure for the common "wrong address entirely" mistake.
+     *
+     *      Comparing against `runtimeCode` is only sound because {Deliver} has no immutables and no
+     *      constructor arguments, so its deployed code is a compile-time constant. Adding an
+     *      immutable would make `type(Deliver).runtimeCode` illegal and this check would stop
+     *      compiling — which is the right way to find out.
      */
     function _verify(
         address target
@@ -101,6 +113,27 @@ contract Deploy is Script {
             Deliver(payable(target)).NATIVE_SENTINEL() == EXPECTED_NATIVE_SENTINEL,
             "code at address is not Deliver"
         );
+        require(
+            keccak256(target.code) == keccak256(type(Deliver).runtimeCode), "code at address is not Deliver"
+        );
+    }
+
+    /// @dev The root salt, rejecting the zero value.
+    ///      `SALT` fixes the address on every chain permanently, so an unset or empty env var is far
+    ///      more likely to be a mistake than an intent — and it is not a mistake you can take back.
+    function _rootSalt() internal view returns (bytes32) {
+        bytes32 rootSalt = vm.envBytes32("SALT");
+        require(rootSalt != bytes32(0), "SALT must be non-zero");
+        return rootSalt;
+    }
+
+    /// @dev Deployer address for a read-only prediction.
+    ///      Prefers an explicit `DEPLOYER` so the address integrators are meant to hardcode can be
+    ///      checked from a machine that holds no key at all; falls back to deriving it from
+    ///      `PRIVATE_KEY`.
+    function _deployer() internal view returns (address) {
+        address explicitDeployer = vm.envOr("DEPLOYER", address(0));
+        return explicitDeployer != address(0) ? explicitDeployer : vm.addr(vm.envUint("PRIVATE_KEY"));
     }
 
     function _contractSalt(
