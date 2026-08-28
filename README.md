@@ -193,6 +193,7 @@ you are not testing what you think you are. `Anchor.toml` sets `test = "cargo te
 |---|---|
 | [`docs/INTEGRATING.md`](docs/INTEGRATING.md) | **Start here to build on it.** How to compose the delivery atomically, how to choose `min`, what each failure mode means. |
 | [`ts/README.md`](ts/README.md) | The `@eco-foundation/delivery` SDK — call builders for both VMs and the `min` arithmetic. |
+| [`docs/DEPLOYING.md`](docs/DEPLOYING.md) | CREATE3 deploys, the salt rule, the Solana program id and keypair custody. |
 | [`PARITY.md`](PARITY.md) | EVM ↔ SVM behaviour and test map. Every divergence, stated as a divergence. |
 | [`evm/README.md`](evm/README.md) | EVM interface reference. |
 | [Security notes](#security-notes) | The two accepted hazards, in full. Read before integrating. |
@@ -220,7 +221,10 @@ ts/src/min.ts                             the min ÷ (1 − fee) arithmetic
 ts/src/generated/                         ABI + IDL, generated from the contract builds
 ts/scripts/generate.mjs                   regenerator; `--check` fails CI on drift
 
+evm/script/Deploy.s.sol                   CREATE3 deploy, idempotent, with predictAddress()
+
 docs/INTEGRATING.md                       integration guide
+docs/DEPLOYING.md                         deploy runbook for both VMs
 PARITY.md                                 EVM ↔ SVM behaviour and test map
 .github/workflows/ci.yml                  CI: forge, anchor, and SDK
 ```

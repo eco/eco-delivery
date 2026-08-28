@@ -3,7 +3,7 @@
 
 /** Anchor IDL of `solana/programs/deliver`, straight from the anchor build output. */
 export const deliverIdl = {
-  "address": "EbXbY2wG7DR43ghNdPYJWNRDh5e45cCFnCM3AzzPybjy",
+  "address": "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw",
   "metadata": {
     "name": "deliver",
     "version": "0.1.0",
@@ -327,4 +327,4 @@ export const deliverIdl = {
 export type DeliverIdl = typeof deliverIdl;
 
 /** Program id the IDL was built with. Override it if you deploy your own instance. */
-export const DELIVER_PROGRAM_ID = "EbXbY2wG7DR43ghNdPYJWNRDh5e45cCFnCM3AzzPybjy" as const;
+export const DELIVER_PROGRAM_ID = "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw" as const;

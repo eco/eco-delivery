@@ -293,5 +293,6 @@ Known and accepted, in rough order of how much they matter:
 8. Neither side has an integration/fork test against a real deployment. All non-standard behaviour
    is exercised through local mocks (EVM) and litesvm's bundled program versions (SVM:
    `spl_token` 3.5.0, `spl_token_2022` 10.0.0, `spl_associated_token_account` 1.1.1).
-9. Neither side has a deploy script. CI does run both suites plus the SDK on every push
-   (`.github/workflows/ci.yml`), so the gates above are enforced.
+9. Both sides now have a deploy script (`evm/script/Deploy.s.sol`, `anchor run deploy-*`; see
+   `docs/DEPLOYING.md`), and CI runs both suites plus the SDK on every push
+   (`.github/workflows/ci.yml`). Nothing has been deployed to a real network.

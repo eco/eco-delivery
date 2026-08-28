@@ -117,7 +117,7 @@ use anchor_lang::prelude::*;
 pub use constants::*;
 pub use instructions::*;
 
-declare_id!("EbXbY2wG7DR43ghNdPYJWNRDh5e45cCFnCM3AzzPybjy");
+declare_id!("EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw");
 
 #[program]
 pub mod deliver {
