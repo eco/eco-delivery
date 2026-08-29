@@ -86,6 +86,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///      Both `address(0)` and `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` are accepted by
 ///      {deliverToken} as sentinels meaning "native ETH", and route to the native path.
 ///
+///      **Why `address(0)` is accepted.** It is a compatibility choice, not an oversight.
+///      `0xEeee...EEeE` is the more common convention, but a number of protocols encode native ETH
+///      as the zero address instead. Rejecting it would mean a caller arriving from one of those
+///      conventions falls through to the ERC-20 path with a token address that has no code — a
+///      confusing revert, or worse, a caller that special-cases around it. Accepting both means the
+///      tuple `(token, recipient, min)` carries the same meaning whichever convention produced it.
+///
 ///      Accepting `address(0)` has a specific, accepted hazard: the classic uninitialized-variable
 ///      caller bug — a caller that forgets to set its `token` field and passes a zero address —
 ///      normally reverts harmlessly. **Here it does not revert. It sweeps this contract's entire
