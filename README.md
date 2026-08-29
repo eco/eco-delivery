@@ -310,6 +310,11 @@ On EVM, `deliverToken` treats **both** `address(0)` and
 `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` as meaning "native ETH", and routes them to the native
 path.
 
+It is accepted for compatibility: `0xEeee…` is the more common convention, but a number of
+protocols encode native ETH as the zero address, and accepting both means `(token, recipient, min)`
+means the same thing whichever convention the caller came from. That benefit is real, and so is the
+cost below — it is a trade, made knowingly.
+
 The classic caller bug — a struct field or storage variable that was never assigned, so `token`
 arrives as the zero address — normally produces a harmless revert. **Here it does not revert. It
 sweeps this contract's entire native ETH balance to whatever `recipient` that buggy caller

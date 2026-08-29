@@ -71,7 +71,9 @@ in `README.md` (`## Security notes`) and in the NatSpec of `evm/src/Deliver.sol`
 - **`address(0)` is a native-ETH sentinel on EVM**, alongside
   `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`. An unset `token` field therefore sweeps ETH instead
   of reverting. This is a knowingly accepted hazard, pinned by
-  `test_Hazard_UninitializedTokenSweepsEthInsteadOfReverting`. Flag it only if you find a *caller*
+  `test_Hazard_UninitializedTokenSweepsEthInsteadOfReverting`. It is accepted for compatibility with
+  protocols that encode native ETH as the zero address rather than as `0xEeee...`, so the same
+  `(token, recipient, min)` tuple works from either convention. Flag it only if you find a *caller*
   path where an attacker-influenced field reaches it. There is no SVM analogue — `deliver_token`
   takes a mint account and cannot be steered into a lamport sweep.
 - **The native send forwards all remaining gas** via a raw `call` and reverts on failure. Fail-closed
