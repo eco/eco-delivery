@@ -33,8 +33,9 @@ are generated from the contract build output.
 
 The EVM contract is deployed, unaudited, to 12 mainnets at
 `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` (identical address on every chain, via CreateX CREATE2
-with an unguarded salt, so anyone can reproduce it on a new chain). The Solana program is not
-deployed. Nothing is audited.
+with an unguarded salt, so anyone can reproduce it on a new chain). The Solana program is deployed to
+mainnet-beta as `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` and is currently **upgradeable** —
+unlike the EVM contract, which has no upgrade path. Nothing is audited.
 
 ## Review relevance
 

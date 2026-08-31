@@ -13,14 +13,33 @@
       "evmVersion": "paris",
       "bytecodeHash": "none"
     },
-    "chains": [1, 10, 56, 130, 137, 146, 999, 8453, 9745, 42161, 42220, 57073],
+    "chains": [
+      1,
+      10,
+      56,
+      130,
+      137,
+      146,
+      999,
+      8453,
+      9745,
+      42161,
+      42220,
+      57073
+    ],
     "notDeployed": {
-      "2020": "ronin — deployer unfunded, deliberately skipped"
+      "2020": "ronin \u2014 deployer unfunded, deliberately skipped"
     }
   },
   "svm": {
     "programId": "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw",
-    "deployed": false,
-    "note": "not deployed to any cluster; program keypair is gitignored and must be backed up before deploying"
+    "cluster": "mainnet-beta",
+    "deployed": true,
+    "programDataAddress": "3fSte1CavfxiGhAPXMWDL7n3M8btL8R9avMAnhemzmos",
+    "upgradeAuthority": "5S5UQS5GrhpVgxmfPBtBXAqMjF11ttZUWkffRg5NTtmn",
+    "immutable": false,
+    "dataLength": 177576,
+    "deploySignature": "2vYX98UecWa2wrAEmayzTtQqTFXT9cYJnsXEv1VQSX4w4cJKV5PCUYwmKFsum4z3zJae2s1NsyfXcFuJDJ3JPcmk",
+    "note": "UPGRADEABLE. The EVM contract has no upgrade path at all, so this is a real trust asymmetry between the two implementations - see PARITY.md. Make immutable with `solana program set-upgrade-authority --final` (irreversible), or move the authority to a multisig."
   }
 }

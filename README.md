@@ -14,8 +14,11 @@ One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust).
 one primitive, kept behaviourally identical on purpose.
 
 > **Not audited.** Deployed, unaudited, to 12 EVM mainnets at
-> `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` — see [`deployments.json`](deployments.json).
-> The Solana program is **not** deployed to any cluster.
+> `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and to Solana mainnet-beta as
+> `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` — see [`deployments.json`](deployments.json).
+>
+> The EVM contract has **no upgrade path**. The Solana program is currently **upgradeable**, so it
+> carries a trust assumption its EVM twin does not — see [PARITY.md](PARITY.md) row 13a.
 
 - [Why this exists](#why-this-exists) · [The guarantee](#the-guarantee) ·
   [**Integration guide →**](docs/INTEGRATING.md) · [**EVM ↔ SVM parity map →**](PARITY.md)
