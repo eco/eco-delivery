@@ -106,10 +106,19 @@ the `Eco…` convention used by the programs in `eco-routes-svm`. It replaces th
 
 ```bash
 cd solana
-anchor build
-anchor run deploy-devnet     # anchor deploy --provider.cluster devnet  --program-name deliver
-anchor run deploy-mainnet    # anchor deploy --provider.cluster mainnet --program-name deliver
+SOLANA_RPC_URL=... DEPLOYER_KEYPAIR=/path/to/deployer.json ./script/deploy.sh
 ```
+
+**Deploys are immutable by default.** `script/deploy.sh` does it in three steps — deploy
+upgradeable, verify the on-chain bytes against the local `.so`, then set the upgrade authority to
+none. It is deliberately not `solana program deploy --final`, which finalises in the same breath as
+the upload: on a bad or truncated upload that leaves a permanently wrong program at the id, unfixable,
+with the vanity id spent. Verifying in between makes the irreversible step conditional on the
+reversible one having worked. `FINALIZE=false` stops after verification if you need to test first.
+
+Why immutable at all: the EVM contract has no upgrade path, so an upgradeable Solana program means
+integrators must trust an upgrade-authority holder on one chain and nobody on the other. See
+[`PARITY.md`](../PARITY.md) row 13a.
 
 `Anchor.toml` carries the id in `[programs.localnet]`, `[programs.devnet]` and
 `[programs.mainnet]` — the same id on every cluster, as in `eco-routes-svm`.
@@ -134,11 +143,10 @@ Undecided, and each is a one-way door:
 
 - [ ] **The `SALT` value for EVM.** It fixes the address on every chain, forever. Pick it once.
 - [ ] **Which chains**, and in what order.
-- [ ] **Solana upgrade authority.** `anchor deploy` leaves the deploying wallet as upgrade
-      authority. Decide whether to transfer it to a multisig, or make the program immutable with
-      `solana program set-upgrade-authority --final` — which cannot be undone. A stateless
-      pass-through is a reasonable candidate for immutability, but that is a decision, not a
-      default.
+- [x] **Solana upgrade authority.** Decided: immutable. `script/deploy.sh` finalises by default.
+      **The currently deployed program predates that decision and is still upgradeable**, authority
+      `5S5UQS5GrhpVgxmfPBtBXAqMjF11ttZUWkffRg5NTtmn`. Finalise it with:
+      `solana program set-upgrade-authority EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw --final`
 - [ ] **An audit.** The repo says "not audited" in every doc; that stays true until it isn't.
 - [ ] **Addresses into the SDK.** `@eco-foundation/delivery` ships no addresses today. Add them
       once deployed, and drop `"private": true` from `ts/package.json` to publish.

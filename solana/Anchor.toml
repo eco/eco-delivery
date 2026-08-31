@@ -21,7 +21,11 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "cargo test"
-deploy-devnet = "anchor deploy --provider.cluster devnet --program-name deliver"
-deploy-mainnet = "anchor deploy --provider.cluster mainnet --program-name deliver"
+# Deploys are IMMUTABLE by default — script/deploy.sh deploys, verifies the on-chain bytes
+# against the local build, and only then sets the upgrade authority to none. Do not replace these
+# with a bare `anchor deploy`, which leaves the program upgradeable and the EVM/SVM trust models
+# asymmetric (see PARITY.md row 13a).
+deploy-devnet = "SOLANA_RPC_URL=https://api.devnet.solana.com ./script/deploy.sh"
+deploy-mainnet = "./script/deploy.sh"
 
 [hooks]
