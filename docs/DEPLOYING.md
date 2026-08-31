@@ -29,8 +29,48 @@ PRIVATE_KEY=0x... SALT=0x... forge script script/Deploy.s.sol \
 The script is **idempotent** — a second run against a chain that already has the contract prints
 `Already deployed, nothing to do.` and exits, so it is safe to re-run across a chain list.
 
-There is no chain list in this repo, matching `eco-routes`: chains are supplied per invocation via
-`$RPC_URL`, and the chain set is a deployment-time decision rather than a committed file.
+### The chain set
+
+`evm/script/chaindata.json` is **copied from `eco-swap-gateway/evm/script/chaindata.json`**, so
+EcoDelivery lands on exactly the chains eco-swap is deployed to. Keep the two in sync when either
+moves — nothing enforces it automatically.
+
+| | | | |
+|---|---|---|---|
+| `1` ethereum | `10` optimism | `56` bnb | `130` unichain |
+| `137` polygon | `146` sonic | `999` hyperevm | `2020` ronin |
+| `8453` base | `9745` plasma | `42161` arbitrum | `42220` celo |
+| `57073` ink | | | |
+
+All mainnet; no testnets. eco's shared CREATE3 deployer was verified present on **all thirteen**
+(polygon needed a non-default RPC to confirm, the endpoint in chaindata was down at the time).
+
+### Deploying the whole set
+
+```bash
+cd evm
+
+# predict everywhere, broadcast nothing
+DRY_RUN=true ALCHEMY_API_KEY=... SALT=0x... PRIVATE_KEY=0x... ./script/deployAll.sh
+
+# deploy
+ALCHEMY_API_KEY=... SALT=0x... PRIVATE_KEY=0x... ./script/deployAll.sh
+
+# one chain, or retry the ones that failed
+ONLY=10,8453 ... ./script/deployAll.sh
+```
+
+Every chain is idempotent, so the script is safe to re-run and safe to run again after adding a
+chain. It writes a CSV of results and **fails loudly if the chains do not all agree on the same
+address** — that agreement is the entire point of the CREATE3 setup, and a partial fleet where it
+silently does not hold is worse than a failed deploy.
+
+A note on deployer choice: `eco-swap-gateway` deploys through **CreateX** with an unguarded salt, so
+*any* deployer can reproduce its address on a new chain. This repo follows `eco-routes` instead and
+uses eco's CREATE3 deployer, where the address is derived from `(deployer, salt)` — reproducible
+only by that deployer. Both contracts are present on all thirteen chains, so either would work; the
+difference is who can extend the deployment later. Worth a deliberate decision rather than
+inheriting mine.
 
 ### The salt rule
 
