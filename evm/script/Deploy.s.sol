@@ -5,57 +5,77 @@ import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
 
 import {Deliver} from "../src/Deliver.sol";
-import {ICreate3Deployer} from "./ICreate3Deployer.sol";
+import {ICreateX} from "./ICreateX.sol";
 
 /**
  * @title Deploy
- * @notice Deploys the {Deliver} singleton to one or more chains using CREATE3.
+ * @notice Deploys the {Deliver} singleton via CreateX CREATE2 — same address on every chain,
+ *         reproducible by **anyone**.
  *
- * @dev Follows the conventions in `eco-routes/scripts/DeployIntentChainer.s.sol`: the shared
- *      CREATE3 deployer, a version-discriminated salt, an idempotent run, and a `predictAddress()`
- *      entry point for checking an address without broadcasting.
+ * @dev ## Why permissionless
  *
- * @dev Why CREATE3 matters more here than usual. `Deliver` takes no constructor arguments and holds
- *      no state, so the same bytecode is correct on every chain — and integrators are expected to
- *      hardcode this address as the destination their route pays into. One address everywhere means
- *      an SDK, a settlement contract, and a partner's config can all name a single constant instead
- *      of a per-chain table.
+ *      `Deliver` is a stateless public utility: no constructor arguments, no owner, nothing to
+ *      configure, and no privileged relationship to whoever put it on chain. There is no reason for
+ *      eco to be the only party able to deploy it to a new chain, and a good reason not to be —
+ *      integrators hardcode this address, so extending the fleet to chain N+1 should not depend on
+ *      one key still existing.
  *
- * @dev **Bump DELIVER_VERSION on any change to the contract's interface.** CREATE3 derives the
- *      address from `(deployer, salt)` and ignores bytecode entirely. Without a salt bump, a
- *      modified contract would land on top of the old address on a chain that has not been deployed
- *      yet, so the "same address" invariant would silently start meaning "same address, different
- *      code". That is also why {run} verifies the deployed code below rather than trusting that a
- *      matching address implies matching behaviour.
+ *      With CREATE2 through CreateX and an unguarded salt, `address = f(CreateX, salt, initCode)`.
+ *      There is no deployer term. Anyone can put `Deliver` on a new chain at the identical address
+ *      without coordinating with eco.
+ *
+ *      This matches `eco-swap-gateway`, which deploys the same way for the same reason, and is a
+ *      deliberate departure from `eco-routes`, whose CREATE3 deployer derives the address from
+ *      `(deployer, salt)` and can therefore only be extended by the original deployer.
+ *
+ * @dev ## The salt must be in CreateX's *unguarded* form
+ *
+ *      CreateX inspects the first 21 bytes of the salt and picks one of four behaviours. Two would
+ *      silently destroy the property above:
+ *
+ *      - `salt[0..19] == msg.sender` — guards to that sender; nobody else reproduces the address.
+ *      - `salt[20] == 0x01`          — mixes in `block.chainid`; the address differs per chain.
+ *
+ *      Anything else falls through to `guardedSalt = keccak256(abi.encode(salt))`, which is what we
+ *      want. {_requirePermissionlessSalt} demands the canonical unguarded form — first 20 bytes
+ *      zero, byte 20 zero — so a salt that would quietly produce a per-deployer or per-chain address
+ *      is rejected before anything is broadcast. Getting this wrong does not fail loudly on its own;
+ *      it produces a *different but perfectly valid* address, and the fleet stops sharing one.
+ *
+ * @dev ## No version discriminator, on purpose
+ *
+ *      An earlier revision used eco's CREATE3 deployer and folded a `DELIVER_VERSION` string into
+ *      the salt, because CREATE3 ignores bytecode: without a manual bump, changed code would land on
+ *      the old address. CREATE2 does not have that problem — the address derives from the init code
+ *      hash, so any change to {Deliver} moves the address by itself. The mechanism now enforces what
+ *      a comment used to have to.
+ *
+ * @dev ## Reproducibility
+ *
+ *      Because the address depends on the init code, anyone reproducing it must compile identically.
+ *      `foundry.toml` pins `solc = "0.8.28"`, `optimizer = true`, `optimizer_runs = 1_000_000`,
+ *      `evm_version = "paris"` and `bytecode_hash = "none"` (so no metadata hash varies the
+ *      bytecode). Changing any of those changes the address.
  *
  * @dev Usage:
- *      PRIVATE_KEY=0x... SALT=0x... forge script script/Deploy.s.sol \
- *        --rpc-url <RPC_URL> --broadcast --slow --verify
+ *      SALT=0x... forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast --slow --verify
  *
- *      To check the address on a chain without deploying:
- *      PRIVATE_KEY=0x... SALT=0x... forge script script/Deploy.s.sol \
- *        --sig "predictAddress()" --rpc-url <RPC_URL>
+ *      Predicting needs no private key at all, which is rather the point:
+ *      SALT=0x... forge script script/Deploy.s.sol --sig "predictAddress()" --rpc-url <RPC_URL>
  */
 contract Deploy is Script {
-    /// @dev The shared eco CREATE3 deployer. Same address across eco's repos and chains.
-    ICreate3Deployer constant CREATE3_DEPLOYER = ICreate3Deployer(0xC6BAd1EbAF366288dA6FB5689119eDd695a66814);
-
-    /// @dev Salt discriminator. Bump on any interface change — see the CREATE3 note above.
-    string constant DELIVER_VERSION = "ECO_DELIVERY_V1";
-
-    /// @dev Mirrors `Deliver.NATIVE_SENTINEL`. A cheap first assertion only — {_verify} compares the
-    ///      full runtime code, because this constant alone does not identify the contract.
-    address constant EXPECTED_NATIVE_SENTINEL = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    /// @dev CreateX, at the same address on every chain it is deployed to.
+    ICreateX constant CREATEX = ICreateX(0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed);
 
     function run() external {
-        bytes32 rootSalt = _rootSalt();
-        address deployer = vm.rememberKey(vm.envUint("PRIVATE_KEY"));
+        bytes32 salt = vm.envBytes32("SALT");
+        _requirePermissionlessSalt(salt);
+        require(address(CREATEX).code.length > 0, "CreateX is not deployed on this chain");
 
-        bytes32 salt = _contractSalt(rootSalt, DELIVER_VERSION);
-        address predicted = CREATE3_DEPLOYER.deployedAddress(bytes(""), deployer, salt);
+        bytes memory initCode = type(Deliver).creationCode;
+        address predicted = _predict(salt, initCode);
 
         console.log("Chain ID       :", block.chainid);
-        console.log("Deployer       :", deployer);
         console.log("Predicted addr :", predicted);
 
         if (predicted.code.length > 0) {
@@ -64,82 +84,68 @@ contract Deploy is Script {
             return;
         }
 
-        vm.startBroadcast(deployer);
-        address deployed = CREATE3_DEPLOYER.deploy(type(Deliver).creationCode, salt);
+        vm.startBroadcast();
+        address deployed = CREATEX.deployCreate2(salt, initCode);
         vm.stopBroadcast();
 
-        require(deployed == predicted, "address mismatch");
-        require(deployed.code.length > 0, "deployment produced no code");
+        require(deployed == predicted, "deployed address does not match prediction");
         _verify(deployed);
 
         console.log("Deployed at    :", deployed);
     }
 
-    /// @notice Print the address this deployer+salt resolves to on this chain, without broadcasting.
+    /// @notice Print the address this salt resolves to on this chain.
+    /// @dev Requires no private key — the address does not depend on who deploys it. That is the
+    ///      point of the unguarded salt, and it means anyone can verify the address independently
+    ///      before trusting it.
     function predictAddress() external view {
-        bytes32 salt = _contractSalt(_rootSalt(), DELIVER_VERSION);
-        address deployer = _deployer();
-        address predicted = CREATE3_DEPLOYER.deployedAddress(bytes(""), deployer, salt);
+        bytes32 salt = vm.envBytes32("SALT");
+        _requirePermissionlessSalt(salt);
 
+        address predicted = _predict(salt, type(Deliver).creationCode);
         console.log("Chain ID       :", block.chainid);
-        console.log("Deployer       :", deployer);
         console.log("Predicted addr :", predicted);
+        console.log("CreateX present:", address(CREATEX).code.length > 0);
         console.log("Deployed       :", predicted.code.length > 0);
     }
 
     /**
-     * @dev Confirm the code at `target` really is {Deliver}.
+     * @dev CreateX hashes the salt internally before the CREATE2, but `computeCreate2Address` does
+     *      **not** apply that transform — it takes an already-guarded salt. So the guard has to be
+     *      reproduced here, or the prediction silently disagrees with the deploy. For an unguarded
+     *      salt the transform is `keccak256(abi.encode(salt))`, which is exactly why
+     *      {_requirePermissionlessSalt} runs first: it is what makes this the correct branch.
+     */
+    function _predict(
+        bytes32 salt,
+        bytes memory initCode
+    ) internal view returns (address) {
+        bytes32 guardedSalt = keccak256(abi.encode(salt));
+        return CREATEX.computeCreate2Address(guardedSalt, keccak256(initCode));
+    }
+
+    /// @dev Reject any salt CreateX would treat as guarded. See the contract-level note.
+    function _requirePermissionlessSalt(
+        bytes32 salt
+    ) internal pure {
+        require(bytes20(salt) == bytes20(0), "salt: first 20 bytes must be zero (else guarded to a sender)");
+        require(salt[20] == 0x00, "salt: byte 20 must be 0x00 (0x01 mixes in chainid)");
+    }
+
+    /**
+     * @dev Confirm the code at `target` is {Deliver}.
      *
-     *      Worth doing precisely because CREATE3 ignores bytecode: a matching address proves only
-     *      that the same deployer used the same salt, not that it deployed the same contract. This
-     *      catches a salt collision with an older or different build before anyone points a route
-     *      at the address.
-     *
-     *      The code hash is the assertion that actually earns the error message. Reading
-     *      `NATIVE_SENTINEL()` alone would pass for *any* contract exposing that constant —
-     *      including a modified {Deliver} whose constant survived but whose `deliverToken` did not,
-     *      which is precisely the case this check exists to catch. It is kept as a friendly first
-     *      failure for the common "wrong address entirely" mistake.
-     *
-     *      Comparing against `runtimeCode` is only sound because {Deliver} has no immutables and no
-     *      constructor arguments, so its deployed code is a compile-time constant. Adding an
-     *      immutable would make `type(Deliver).runtimeCode` illegal and this check would stop
-     *      compiling — which is the right way to find out.
+     *      Belt-and-braces under CREATE2, unlike under CREATE3. CREATE2 derives the address from the
+     *      init code hash, so different code cannot occupy this address and this check cannot fail in
+     *      normal operation. It costs one staticcall and is kept so that a change in CreateX's
+     *      behaviour, or a mistake in the guarded-salt derivation above, surfaces here rather than at
+     *      the first delivery.
      */
     function _verify(
         address target
     ) internal view {
         require(
-            Deliver(payable(target)).NATIVE_SENTINEL() == EXPECTED_NATIVE_SENTINEL,
-            "code at address is not Deliver"
-        );
-        require(
             keccak256(target.code) == keccak256(type(Deliver).runtimeCode), "code at address is not Deliver"
         );
-    }
-
-    /// @dev The root salt, rejecting the zero value.
-    ///      `SALT` fixes the address on every chain permanently, so an unset or empty env var is far
-    ///      more likely to be a mistake than an intent — and it is not a mistake you can take back.
-    function _rootSalt() internal view returns (bytes32) {
-        bytes32 rootSalt = vm.envBytes32("SALT");
-        require(rootSalt != bytes32(0), "SALT must be non-zero");
-        return rootSalt;
-    }
-
-    /// @dev Deployer address for a read-only prediction.
-    ///      Prefers an explicit `DEPLOYER` so the address integrators are meant to hardcode can be
-    ///      checked from a machine that holds no key at all; falls back to deriving it from
-    ///      `PRIVATE_KEY`.
-    function _deployer() internal view returns (address) {
-        address explicitDeployer = vm.envOr("DEPLOYER", address(0));
-        return explicitDeployer != address(0) ? explicitDeployer : vm.addr(vm.envUint("PRIVATE_KEY"));
-    }
-
-    function _contractSalt(
-        bytes32 rootSalt,
-        string memory contractName
-    ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(rootSalt, keccak256(abi.encodePacked(contractName))));
     }
 }

@@ -2,16 +2,22 @@
 #
 # deployAll.sh — deploy Deliver to every chain in chaindata.json.
 #
-# The chain set is copied from eco-swap-gateway's chaindata.json, so EcoDelivery lands on exactly
-# the chains eco-swap is deployed to. Keep the two in sync when either moves.
+# The chain set is eco-chains (eco/eco-chains src/assets/chain.json), the same list eco-routes
+# deploys against. Refresh it from there rather than editing by hand.
 #
-# Deployment is CREATE3 through eco's shared deployer, so every chain gets the SAME address, and
-# each chain is idempotent: a chain that already has the contract is detected and skipped. That
-# makes the script safe to re-run, and safe to run again after adding a chain.
+# Deployment is CREATE2 through CreateX with an unguarded salt, so the address depends only on
+# (salt, initCode) — not on who deploys. Every chain gets the SAME address and ANYONE can extend
+# the fleet to a new chain later without a key from eco. Each chain is idempotent: one that already
+# has the contract is detected and skipped, so the script is safe to re-run.
+#
+# Chains where CreateX itself is not deployed are reported as `no-createx` and skipped rather than
+# failing the run — they cannot get the shared address until someone deploys CreateX there.
 #
 # Required environment:
-#   PRIVATE_KEY       deployer key, funded on every chain you are deploying to
-#   SALT              bytes32 root salt — THIS FIXES THE ADDRESS ON EVERY CHAIN, PERMANENTLY
+#   SALT              bytes32, canonical unguarded form (first 20 bytes zero, byte 20 zero).
+#                     THIS FIXES THE ADDRESS ON EVERY CHAIN, PERMANENTLY.
+#   PRIVATE_KEY       deployer key, funded on every target chain. NOT needed for DRY_RUN —
+#                     prediction is deployer-independent, which is the point of the design.
 #   ALCHEMY_API_KEY   substituted into the chaindata.json RPC URLs
 #
 # Optional:
@@ -39,7 +45,10 @@ fail() { echo "error: $*" >&2; exit 1; }
 
 [ -f "$CHAIN_DATA" ] || fail "chain data not found: $CHAIN_DATA"
 [ -n "${SALT:-}" ] || fail "SALT is not set. It fixes the deployed address on every chain permanently — choose it deliberately, do not let it default."
-[ -n "${PRIVATE_KEY:-}" ] || fail "PRIVATE_KEY is not set"
+if [ "${DRY_RUN:-false}" != "true" ]; then
+    [ -n "${PRIVATE_KEY:-}" ] || fail "PRIVATE_KEY is not set"
+fi
+# NOTE: predicting needs no key at all — the CreateX address does not depend on the deployer.
 if grep -q 'ALCHEMY_API_KEY' "$CHAIN_DATA" && [ -z "${ALCHEMY_API_KEY:-}" ]; then
     fail "chaindata.json uses \${ALCHEMY_API_KEY} but it is not set"
 fi
@@ -86,6 +95,10 @@ print(os.path.expandvars(d['$id']['url']))
     fi
 
     out=$(forge script script/Deploy.s.sol --rpc-url "$url" --broadcast --slow 2>&1) || {
+        if echo "$out" | grep -q 'CreateX is not deployed on this chain'; then
+            echo "skipped — CreateX absent on this chain"
+            echo "$id,no-createx," >> "$RESULTS_FILE"; continue
+        fi
         echo "FAILED"; echo "$out" | tail -5 | sed 's/^/         /'
         echo "$id,failed," >> "$RESULTS_FILE"; failed+=("$id"); continue
     }
