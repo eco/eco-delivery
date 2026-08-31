@@ -94,7 +94,7 @@ print(os.path.expandvars(d['$id']['url']))
         continue
     fi
 
-    out=$(forge script script/Deploy.s.sol --rpc-url "$url" --broadcast --slow 2>&1) || {
+    out=$(forge script script/Deploy.s.sol --rpc-url "$url" --broadcast --slow --private-key "$PRIVATE_KEY" 2>&1) || {
         if echo "$out" | grep -q 'CreateX is not deployed on this chain'; then
             echo "skipped — CreateX absent on this chain"
             echo "$id,no-createx," >> "$RESULTS_FILE"; continue

@@ -13,7 +13,9 @@ the call succeeds. That is a deliberate, tested carve-out, not an oversight; see
 One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust). Two encodings of
 one primitive, kept behaviourally identical on purpose.
 
-> **Not audited, not deployed.** Nothing here claims otherwise.
+> **Not audited.** Deployed, unaudited, to 12 EVM mainnets at
+> `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` — see [`deployments.json`](deployments.json).
+> The Solana program is **not** deployed to any cluster.
 
 - [Why this exists](#why-this-exists) · [The guarantee](#the-guarantee) ·
   [**Integration guide →**](docs/INTEGRATING.md) · [**EVM ↔ SVM parity map →**](PARITY.md)
@@ -252,7 +254,7 @@ PARITY.md                                 EVM ↔ SVM behaviour and test map
 ## SDK
 
 Not published yet — the package is marked `private` so `npm publish` refuses it, and the
-contracts are unaudited and undeployed. Consume it from the repo until there is a release.
+contracts are unaudited. Consume it from the repo until there is a release.
 
 ```bash
 npm install @eco-foundation/delivery   # once published

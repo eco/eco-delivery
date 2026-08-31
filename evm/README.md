@@ -94,4 +94,5 @@ lag the EVM spec, with 4096 fuzz runs.
 
 ## Status
 
-Not audited and not deployed. Nothing in this repo claims otherwise.
+Not audited. Deployed to 12 EVM mainnets at `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673`
+via CreateX CREATE2 — see `../deployments.json` for the chain list and the salt.

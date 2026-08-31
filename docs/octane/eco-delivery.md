@@ -31,7 +31,10 @@ how the balance got there. `deliverNative` / `deliver_sol` do the same for nativ
 TypeScript SDK (`ts/`, `@eco-foundation/delivery`, unpublished) ships call builders whose ABI and IDL
 are generated from the contract build output.
 
-Nothing is deployed to any network. Nothing is audited.
+The EVM contract is deployed, unaudited, to 12 mainnets at
+`0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` (identical address on every chain, via CreateX CREATE2
+with an unguarded salt, so anyone can reproduce it on a new chain). The Solana program is not
+deployed. Nothing is audited.
 
 ## Review relevance
 

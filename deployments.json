@@ -1,0 +1,26 @@
+{
+  "evm": {
+    "address": "0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673",
+    "contract": "evm/src/Deliver.sol:Deliver",
+    "mechanism": "CreateX CREATE2, unguarded salt",
+    "createx": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+    "salt": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "runtimeCodeHash": "0xe26b864ed88ca7ee6ed942372665ec7341f4f93ebfd83789afc6a126e6200d4d",
+    "compiler": {
+      "solc": "0.8.28",
+      "optimizer": true,
+      "optimizerRuns": 1000000,
+      "evmVersion": "paris",
+      "bytecodeHash": "none"
+    },
+    "chains": [1, 10, 56, 130, 137, 146, 999, 8453, 9745, 42161, 42220, 57073],
+    "notDeployed": {
+      "2020": "ronin — deployer unfunded, deliberately skipped"
+    }
+  },
+  "svm": {
+    "programId": "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw",
+    "deployed": false,
+    "note": "not deployed to any cluster; program keypair is gitignored and must be backed up before deploying"
+  }
+}

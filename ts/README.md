@@ -7,7 +7,7 @@ See the [root README](../README.md) for what the contract is and
 [`docs/INTEGRATING.md`](../docs/INTEGRATING.md) for how to wire it into a route.
 
 > **Not published.** The package is marked `"private": true` so `npm publish` refuses it.
-> The contracts are unaudited and undeployed; remove that field when there is a release to make.
+> The contracts are unaudited; remove that field when there is a release to make.
 
 ```bash
 npm install @eco-foundation/delivery   # once published
