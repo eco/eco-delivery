@@ -13,7 +13,7 @@ the call succeeds. That is a deliberate, tested carve-out, not an oversight; see
 One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust). Two encodings of
 one primitive, kept behaviourally identical on purpose.
 
-> **Not audited.** Deployed, unaudited, to 12 EVM mainnets at
+> **Not audited.** Deployed, unaudited, to 13 EVM mainnets at
 > `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and to Solana mainnet-beta as
 > `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` — see [`deployments.json`](deployments.json).
 >

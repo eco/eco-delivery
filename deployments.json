@@ -19,6 +19,7 @@
       56,
       130,
       137,
+      143,
       146,
       999,
       8453,
@@ -29,6 +30,9 @@
     ],
     "notDeployed": {
       "2020": "ronin \u2014 deployer unfunded, deliberately skipped"
+    },
+    "chainNotes": {
+      "143": "monad \u2014 not in eco-chains or eco-swap chaindata; added here. First chain reached purely because the salt is unguarded."
     }
   },
   "svm": {

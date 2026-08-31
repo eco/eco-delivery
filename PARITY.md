@@ -296,5 +296,5 @@ Known and accepted, in rough order of how much they matter:
    `spl_token` 3.5.0, `spl_token_2022` 10.0.0, `spl_associated_token_account` 1.1.1).
 9. Both sides now have a deploy script (`evm/script/Deploy.s.sol`, `anchor run deploy-*`; see
    `docs/DEPLOYING.md`), and CI runs both suites plus the SDK on every push
-   (`.github/workflows/ci.yml`). The EVM side is deployed to 12 mainnets at
+   (`.github/workflows/ci.yml`). The EVM side is deployed to 13 mainnets at
    `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673`; the Solana program is not deployed anywhere.
