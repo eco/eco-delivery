@@ -81,6 +81,16 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///      recipient's balance delta in the calling contract — or must not route those tokens through
 ///      this contract at all.
 ///
+///      The mirror image of that case **reverts** rather than under-delivering. A token that debits
+///      `amount + fee` from the *sender* — charging the fee on top so the recipient receives the
+///      full `amount` — can never be swept: this contract holds exactly its balance and the transfer
+///      demands more. **Topping the contract up does not help**, because the sweep then attempts the
+///      new, larger balance and comes up short by the fee again. Such a token is simply
+///      undeliverable here and must be filtered upstream. It is broken well beyond this contract —
+///      no holder of one can ever transfer their entire balance — which is why the failure is left
+///      to revert rather than worked around. Pinned by
+///      `test_SenderSurchargeTokenCannotBeSweptAndToppingUpDoesNotHelp`.
+///
 ///      ## WARNING — `address(0)` is a native-ETH sentinel, not a rejected input
 ///
 ///      Both `address(0)` and `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` are accepted by

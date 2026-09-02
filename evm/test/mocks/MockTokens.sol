@@ -201,3 +201,42 @@ contract PreUpdateHookERC20 is ERC20 {
         super._update(from, to, value);
     }
 }
+
+/// @notice Charges the fee **on top**: the recipient receives the full `amount` and the sender is
+///         debited `amount + fee`. The mirror image of {FeeOnTransferERC20}, and the reason a
+///         sweep-everything contract cannot deliver such a token at all — it holds exactly its
+///         balance, and the transfer demands more than that.
+///
+///         Note this makes the token broken far beyond this contract: no holder can ever transfer
+///         their entire balance, at any size, to anyone.
+contract SenderSurchargeERC20 is ERC20 {
+    uint256 public constant BPS = 10_000;
+
+    uint256 public feeBps;
+    address public feeSink;
+
+    constructor(
+        uint256 feeBps_,
+        address feeSink_
+    ) ERC20("SenderSurcharge", "SUR") {
+        feeBps = feeBps_;
+        feeSink = feeSink_;
+    }
+
+    function mint(
+        address to,
+        uint256 value
+    ) external {
+        _mint(to, value);
+    }
+
+    function transfer(
+        address to,
+        uint256 amount
+    ) public override returns (bool) {
+        _transfer(msg.sender, to, amount);
+        uint256 fee = (amount * feeBps) / BPS;
+        if (fee > 0) _transfer(msg.sender, feeSink, fee);
+        return true;
+    }
+}

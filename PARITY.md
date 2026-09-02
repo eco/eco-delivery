@@ -223,7 +223,7 @@ All 50 EVM tests. Legend:
 | `test_Hazard_UninitializedTokenSweepsEthInsteadOfReverting` | **The hazard itself does not exist on SVM** — an unset mint field cannot become a native sweep. The parallel hazard (an unvalidated recipient, `Pubkey::default()` included) does exist there, is documented in the module docs, and is **not tested**. ⚠️ |
 | `testFuzz_SentinelBoundaryBalanceVersusMin` | No sentinel to fuzz. There is no token-address argument on this side to overload, so the dispatch this fuzzes cannot exist. |
 
-### `test/DeliverNonStandardTokens.t.sol` — non-standard ERC-20s (7)
+### `test/DeliverNonStandardTokens.t.sol` — non-standard ERC-20s (9)
 
 | EVM test | SVM counterpart | |
 |---|---|---|
@@ -234,6 +234,8 @@ All 50 EVM tests. Legend:
 | `test_Hole_FeeOnTransferTokenCanDeliverLessThanMin` | `deliver_token_token2022_transfer_fee_recipient_gets_less_than_min` | ✅ **The important one.** Both pin the same documented hole: the call succeeds while the recipient receives strictly less than `min`. |
 | `test_FeeOnTransferTokenIsStillFullySwept` | inside the test above | 🟰 subsumed. The SVM fee test also asserts the vault ATA ends at zero, but there is no standalone "fee mint is still fully swept" test. |
 | `test_FeeOnTransferTokenStillRevertsBelowMin` | none | ⚠️ gap. Writable on SVM (a fee mint funded below `min`); the pre-transfer check makes it behave identically. Not written. |
+| `test_SenderSurchargeTokenCannotBeSweptAndToppingUpDoesNotHelp` | none | 🚫 A token that debits `amount + fee` from the *sender* cannot exist on SVM. Token-2022's `TransferFee` withholds the fee **from** the transferred amount, so the sender never needs to hold more than it sends, and SPL Token has no fee mechanism at all. Octane bab5c2e7. |
+| `test_SenderSurchargeTokenWithZeroBalanceStillNoOps` | none | 🚫 Same reason. The zero-balance no-op itself *is* covered on SVM by `deliver_token_zero_balance_with_min_zero_succeeds_as_a_noop`. |
 
 ### `test/DeliverReentrancy.t.sol` — re-entry (6)
 
