@@ -949,3 +949,50 @@ proptest! {
         }
     }
 }
+
+/// Naming the vault PDA itself as `recipient` is a no-op that succeeds: the System Program
+/// transfer nets to zero. Nothing is lost and nothing is delivered.
+///
+/// The EVM twin does exactly the same on both of its paths — see `test_SelfDeliveryIsANoOpOnBothPaths`
+/// — so this is pinned rather than constrained. Rejecting it here alone would be the divergence.
+/// Raised as Octane df9b0426; see PARITY.md row 16a for why it is not a defect.
+#[test]
+fn deliver_sol_to_the_vault_itself_is_a_noop() {
+    let mut svm = new_svm();
+    let caller = funded_keypair(&mut svm, 10);
+    let vault = vault_authority();
+    svm.airdrop(&vault, 3 * LAMPORTS_PER_SOL).unwrap();
+    let before = svm.get_balance(&vault).unwrap();
+
+    send_ok(
+        &mut svm,
+        &[deliver_sol_ix(&caller.pubkey(), &vault, before)],
+        &caller,
+        &[],
+    );
+
+    assert_eq!(
+        svm.get_balance(&vault).unwrap(),
+        before,
+        "the call succeeded and moved nothing"
+    );
+
+    // ...and the balance is still there for a real delivery, which is what actually drains it.
+    let recipient = funded_keypair(&mut svm, 1);
+    let recipient_before = svm.get_balance(&recipient.pubkey()).unwrap();
+    send_ok(
+        &mut svm,
+        &[deliver_sol_ix(
+            &caller.pubkey(),
+            &recipient.pubkey(),
+            before,
+        )],
+        &caller,
+        &[],
+    );
+    assert_eq!(svm.get_balance(&vault).unwrap_or(0), 0, "drained for real");
+    assert_eq!(
+        svm.get_balance(&recipient.pubkey()).unwrap(),
+        recipient_before + before
+    );
+}
