@@ -25,6 +25,7 @@ use {
             spl_associated_token_account::instruction::create_associated_token_account,
             ID as ASSOCIATED_TOKEN_PROGRAM_ID,
         },
+        memo::ID as MEMO_PROGRAM_ID,
         token::spl_token,
         token_2022::spl_token_2022,
     },
@@ -291,6 +292,27 @@ impl Fixture {
     }
 
     fn deliver_token_ix(&self, caller: &Pubkey, recipient: &Pubkey, min: u64) -> Instruction {
+        self.deliver_token_ix_inner(caller, recipient, min, None)
+    }
+
+    /// Same, but supplying the optional SPL Memo program so the handler emits a memo before the
+    /// transfer — what a caller delivering into a memo-required Token-2022 account must do.
+    fn deliver_token_ix_with_memo(
+        &self,
+        caller: &Pubkey,
+        recipient: &Pubkey,
+        min: u64,
+    ) -> Instruction {
+        self.deliver_token_ix_inner(caller, recipient, min, Some(MEMO_PROGRAM_ID))
+    }
+
+    fn deliver_token_ix_inner(
+        &self,
+        caller: &Pubkey,
+        recipient: &Pubkey,
+        min: u64,
+        memo_program: Option<Pubkey>,
+    ) -> Instruction {
         Instruction::new_with_bytes(
             deliver::ID,
             &deliver::instruction::DeliverToken { min }.data(),
@@ -304,6 +326,7 @@ impl Fixture {
                 token_program: self.token_program,
                 associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
                 system_program: system_program::ID,
+                memo_program,
             }
             .to_account_metas(None),
         )
@@ -948,4 +971,186 @@ proptest! {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Token-2022 MemoTransfer (Octane 66f2d780)
+// ---------------------------------------------------------------------------------------------
+//
+// A recipient may enable `MemoTransfer` on their own ATA, which makes Token-2022 require that the
+// instruction *immediately preceding the transfer, at the same CPI stack height* be a memo. It
+// enforces that with the `get_processed_sibling_instruction` syscall — no Instructions sysvar and
+// no extra account is involved, so a memo placed at the top level of the transaction does not
+// satisfy a transfer issued from inside `deliver_token`. A caller therefore cannot work around
+// this from outside the program.
+
+/// Give `owner`'s ATA for the fixture mint the MemoTransfer extension, with memos required.
+///
+/// The ATA program sizes a new account from the *mint's* extensions, and MemoTransfer is an
+/// account-level extension, so the account has to be reallocated before it can be enabled.
+fn enable_required_memos(f: &mut Fixture, owner: &Keypair) -> Pubkey {
+    let ata = f.recipient_ata(&owner.pubkey());
+    let payer = f.payer.insecure_clone();
+    send_ok(
+        &mut f.svm,
+        &[create_associated_token_account(
+            &payer.pubkey(),
+            &owner.pubkey(),
+            &f.mint,
+            &f.token_program,
+        )],
+        &payer,
+        &[],
+    );
+    send_ok(
+        &mut f.svm,
+        &[
+            spl_token_2022::instruction::reallocate(
+                &f.token_program,
+                &ata,
+                &payer.pubkey(),
+                &owner.pubkey(),
+                &[],
+                &[spl_token_2022::extension::ExtensionType::MemoTransfer],
+            )
+            .unwrap(),
+            spl_token_2022::extension::memo_transfer::instruction::enable_required_transfer_memos(
+                &f.token_program,
+                &ata,
+                &owner.pubkey(),
+                &[],
+            )
+            .unwrap(),
+        ],
+        &payer,
+        &[owner],
+    );
+    ata
+}
+
+/// The repro: delivering into a memo-required ATA fails outright.
+#[test]
+fn deliver_token_token2022_memo_required_recipient_is_rejected() {
+    let mut f = fixture(spl_token_2022::ID, None);
+    let recipient = funded_keypair(&mut f.svm, 10);
+    let ata = enable_required_memos(&mut f, &recipient);
+
+    f.fund_vault(1_000_000);
+    let res = f.deliver(&recipient.pubkey(), 0);
+
+    let e = res.expect_err("expected the Token-2022 memo check to reject this transfer");
+    assert!(
+        e.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("No memo in previous instruction")),
+        "expected Token-2022 NoMemo, got {:?}\nlogs: {:#?}",
+        e.err,
+        e.meta.logs
+    );
+    // Fail-closed: nothing moved.
+    assert_eq!(token_balance(&f.svm, &f.vault_ata), 1_000_000);
+    assert_eq!(token_balance(&f.svm, &ata), 0);
+}
+
+/// A memo at the TOP LEVEL of the transaction does not help, because it is not a sibling of the
+/// `transfer_checked` CPI that `deliver_token` issues. This is what makes it unfixable by callers.
+#[test]
+fn deliver_token_token2022_top_level_memo_does_not_satisfy_the_check() {
+    let mut f = fixture(spl_token_2022::ID, None);
+    let recipient = funded_keypair(&mut f.svm, 10);
+    enable_required_memos(&mut f, &recipient);
+    f.fund_vault(1_000_000);
+
+    let payer = f.payer.insecure_clone();
+    let memo_ix = Instruction::new_with_bytes(MEMO_PROGRAM_ID, b"deliver", vec![]);
+    let deliver_ix = f.deliver_token_ix(&payer.pubkey(), &recipient.pubkey(), 0);
+    let res = send(&mut f.svm, &[memo_ix, deliver_ix], &payer, &[]);
+
+    let e = res.expect_err("a top-level memo must not satisfy a nested CPI's memo check");
+    assert!(
+        e.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("No memo in previous instruction")),
+        "expected NoMemo even with a top-level memo, got {:?}\nlogs: {:#?}",
+        e.err,
+        e.meta.logs
+    );
+}
+
+/// With the optional memo program supplied, the same delivery succeeds: the handler emits a memo
+/// as the sibling instruction immediately before `transfer_checked`, which is what the extension
+/// requires.
+#[test]
+fn deliver_token_token2022_memo_required_succeeds_with_memo_program() {
+    let mut f = fixture(spl_token_2022::ID, None);
+    let recipient = funded_keypair(&mut f.svm, 10);
+    let ata = enable_required_memos(&mut f, &recipient);
+
+    let held = 1_000_000u64;
+    f.fund_vault(held);
+
+    let payer = f.payer.insecure_clone();
+    let ix = f.deliver_token_ix_with_memo(&payer.pubkey(), &recipient.pubkey(), held);
+    send_ok(&mut f.svm, &[ix], &payer, &[]);
+
+    assert_eq!(token_balance(&f.svm, &ata), held, "full balance delivered");
+    assert_eq!(token_balance(&f.svm, &f.vault_ata), 0, "vault swept");
+}
+
+/// The optional account changes nothing for everyone else: an ordinary SPL Token delivery works
+/// identically whether or not the memo program is supplied.
+#[test]
+fn deliver_token_memo_program_is_optional_for_ordinary_mints() {
+    for with_memo in [false, true] {
+        let mut f = spl_fixture();
+        let recipient = Pubkey::new_unique();
+        f.fund_vault(500_000);
+
+        let payer = f.payer.insecure_clone();
+        let ix = if with_memo {
+            f.deliver_token_ix_with_memo(&payer.pubkey(), &recipient, 500_000)
+        } else {
+            f.deliver_token_ix(&payer.pubkey(), &recipient, 500_000)
+        };
+        send_ok(&mut f.svm, &[ix], &payer, &[]);
+
+        assert_eq!(
+            token_balance(&f.svm, &f.recipient_ata(&recipient)),
+            500_000,
+            "with_memo={with_memo}"
+        );
+    }
+}
+
+/// Adding the optional account IS a breaking wire change, and this pins it so nobody assumes
+/// otherwise. Anchor represents an absent optional account by the *program's own id* occupying the
+/// slot — the slot itself is never omitted — so a client built against the pre-memo IDL, which
+/// sends only nine accounts, is rejected with `AccountNotEnoughKeys`.
+///
+/// This is acceptable only because nothing is integrated against the program yet. It is the reason
+/// the change belongs before integration rather than after.
+#[test]
+fn deliver_token_legacy_nine_account_caller_is_rejected() {
+    let mut f = spl_fixture();
+    let recipient = Pubkey::new_unique();
+    f.fund_vault(750_000);
+
+    let payer = f.payer.insecure_clone();
+    let mut ix = f.deliver_token_ix(&payer.pubkey(), &recipient, 750_000);
+    assert_eq!(ix.accounts.len(), 10, "the optional slot is always emitted");
+    ix.accounts.truncate(9); // what a pre-memo client sends
+
+    let e = send(&mut f.svm, &[ix], &payer, &[])
+        .expect_err("a nine-account caller must not silently succeed");
+    assert!(
+        e.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("AccountNotEnoughKeys")),
+        "expected AccountNotEnoughKeys, got {:?}\nlogs: {:#?}",
+        e.err,
+        e.meta.logs
+    );
 }

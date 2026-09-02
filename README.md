@@ -203,7 +203,7 @@ Dependencies are git submodules — clone with `--recurse-submodules`, or run
 ```bash
 cd solana
 anchor build                          # REQUIRED before cargo test
-cargo test                            # 23 tests, incl. 768 proptest cases
+cargo test                            # 28 tests, incl. 768 proptest cases
 cargo fmt --check && cargo clippy --all-targets
 ```
 

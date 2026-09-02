@@ -93,7 +93,11 @@ Evaluate with the following assumptions and trust boundaries.
 - **Token-2022 scope.** `transfer_checked` forwards only its four accounts and drops
   `remaining_accounts`, so mints carrying a `TransferHook` extension **fail outright**. This is
   fail-closed and documented as out of scope, not a silent mishandling. `TransferFee` mints *are*
-  supported and tested.
+  supported and tested. Recipients using the `MemoTransfer` extension *are* supported, but only when
+  the caller supplies `deliver_token`'s **optional** SPL Memo program account; the program then
+  emits the memo one CPI before the transfer. A route that omits the account cannot compensate with
+  a top-level memo — Token-2022 checks the preceding sibling at the same CPI stack height — so a
+  route delivering into a memo-required account must pass it.
 - **One genuine, documented hole, shared with the EVM side.** `min` is checked against the balance
   held **before** the transfer. A Token-2022 mint with a transfer fee can pass the check while the
   recipient is credited strictly less than `min`, and the instruction still succeeds. Pinned by
