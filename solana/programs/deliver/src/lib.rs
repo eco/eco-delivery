@@ -99,6 +99,19 @@
 //!   Supporting them would mean resolving and forwarding the hook's account list. If a hook mint is
 //!   ever in scope, that is the change to make. (`TransferFee` mints, by contrast, work — they just
 //!   expose the `min` hole above, which is why the fee case is the one that is tested.)
+//! - **Token-2022 `DefaultAccountState::Frozen` mints are NOT deliverable unaided.** Every token
+//!   account for such a mint is created frozen, so `init_if_needed` produces a frozen recipient ATA
+//!   and `transfer_checked` fails with `AccountFrozen`. The obstruction starts earlier than that:
+//!   even the *vault* ATA is created frozen, so the vault cannot be funded until someone thaws it.
+//!   This program holds no freeze authority and does not take one — a mint whose accounts default to
+//!   frozen is a permissioned asset, and whoever holds that authority can re-freeze at any moment,
+//!   so it is fundamentally incompatible with permissionless push-delivery.
+//!
+//!   Unlike `MemoTransfer`, this needs no program support: a caller holding the freeze authority can
+//!   create and thaw the recipient ATA with ordinary **top-level** instructions in the same
+//!   transaction, and delivery then succeeds unmodified. Pinned by
+//!   `deliver_token_token2022_default_frozen_recipient_ata_is_rejected` and
+//!   `deliver_token_token2022_default_frozen_succeeds_with_a_top_level_thaw`.
 //! - **Re-entrancy.** Were a hook ever wired up, it could call back into this program. It would find
 //!   a vault token account that has already been debited, so a nested `deliver_token` sweeps zero
 //!   and either no-ops (`min == 0`) or fails the `min` check. There is no program state to corrupt.
