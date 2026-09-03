@@ -147,6 +147,12 @@ Undecided, and each is a one-way door:
       `none` on 2026-09-03 and confirmed on two independent RPCs. `script/deploy.sh` finalises by
       default. Nothing further to do; kept here for the record, the command was:
       `solana program set-upgrade-authority EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw --final`
+- [x] **Explorer verification.** Done, all 13 chains, 2026-09-03. Reproduce with
+      `evm/script/verifyAll.sh`. Three verifiers are needed: one Etherscan V2 key covers 11 chains,
+      Plasma (9745) goes through Routescan, and Ink (57073) through Blockscout. **Note that
+      `forge verify-contract` reporting `Pass - Verified` is not proof** — on Plasma it returns
+      exactly that while the contract stays unverified in the Etherscan V2 index. Always confirm
+      with `getsourcecode` against the explorer that actually serves the chain.
 - [ ] **An audit.** The repo says "not audited" in every doc; that stays true until it isn't.
 - [ ] **Addresses into the SDK.** `@eco-foundation/delivery` ships no addresses today. Add them
       once deployed, and drop `"private": true` from `ts/package.json` to publish.

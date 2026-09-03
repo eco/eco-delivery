@@ -16,6 +16,8 @@ one primitive, kept behaviourally identical on purpose.
 > **Not audited.** Deployed, unaudited, to 13 EVM mainnets at
 > `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and to Solana mainnet-beta as
 > `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` — see [`deployments.json`](deployments.json).
+> Source is published on the block explorer of all thirteen EVM chains, so you can read exactly
+> what is deployed rather than taking this repo's word for it.
 >
 > **Both sides are immutable.** The EVM contract has no upgrade path by construction; the Solana
 > program's upgrade authority was set to `none` on 2026-09-03, irreversibly. Each is trusted on its
