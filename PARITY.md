@@ -33,6 +33,8 @@ suites (EVM: 50 tests, `forge test`; SVM: 23 tests, `cargo test`). Every gap is 
 | 14 | Permissionless: any caller, caller picks the recipient | Permissionless: any signer, caller picks the recipient | **Yes**, with one cost asymmetry — the SVM caller may pay ATA rent. See §2.1. |
 | 15 | No events; the ERC-20 `Transfer` log is the outcome record | No events; the SPL `TransferChecked` instruction and balance change are the outcome record | **Yes**, same decision on both sides — including the same gap: the *native* paths (`deliverNative`, `deliver_sol`) emit no log at all, so native deliveries are visible only in traces / balance deltas, never as a subscribable event. |
 | 16 | Recipient never validated, including `address(0)` | Recipient never validated, including `Pubkey::default()` | **Yes** as a policy. On SVM the hazard is *documented only*, not tested — see §3, EVM case 36. |
+| 16a | `deliverToken`/`deliverNative` with `recipient == address(this)` succeeds and moves nothing | `deliver_sol` with `recipient == vault_authority` succeeds and moves nothing | **Yes** — identical on both sides, and pinned on both. A caller naming the contract itself gets a no-op success: no loss, no delivery. Not special-cased anywhere, because constraining it on one side only would be the divergence. Unreachable when the recipient is bound upstream, and a caller free to choose any recipient would name *themselves* rather than the vault. Raised as Octane df9b0426 and rejected on these grounds. |
+| 16b | No analogue — an ERC-20 has no standard account-freezing model, so `Deliver` cannot be blocked this way | **Token-2022 `DefaultAccountState::Frozen`.** Every account for the mint is created frozen, so both the vault ATA and an `init_if_needed` recipient ATA start unusable and `transfer_checked` fails with `AccountFrozen` | **No — SVM-only.** Not worked around: such a mint is a permissioned asset whose freeze-authority holder can re-freeze at will, so it is incompatible with permissionless push-delivery by construction. Fail-closed, nothing lost. Needs no program support either — a caller with the freeze authority creates and thaws the recipient ATA with **top-level** instructions in the same transaction and delivery succeeds unmodified, unlike `MemoTransfer` (row 19a) where the sibling-instruction check made that impossible. Raised as Octane 01c1d77c and rejected on these grounds. |
 | 17 | `min` checked **pre-transfer** against the held balance | `min` checked **pre-transfer** against the held balance | **Yes** — including the shared under-delivery hole. See §2.2. |
 | 18 | Zero balance + `min == 0` succeeds as a no-op (a transfer of 0) | Zero balance + `min == 0` succeeds as a no-op (a `transfer_checked` of 0 is still issued) | **Yes**, deliberately matched on both sides, on both the token and the native path. |
 | 19 | Pre-existing dust is swept along with the delivery | Pre-existing dust is swept along with the delivery | **Yes.** |
@@ -223,7 +225,7 @@ All 50 EVM tests. Legend:
 | `test_Hazard_UninitializedTokenSweepsEthInsteadOfReverting` | **The hazard itself does not exist on SVM** — an unset mint field cannot become a native sweep. The parallel hazard (an unvalidated recipient, `Pubkey::default()` included) does exist there, is documented in the module docs, and is **not tested**. ⚠️ |
 | `testFuzz_SentinelBoundaryBalanceVersusMin` | No sentinel to fuzz. There is no token-address argument on this side to overload, so the dispatch this fuzzes cannot exist. |
 
-### `test/DeliverNonStandardTokens.t.sol` — non-standard ERC-20s (7)
+### `test/DeliverNonStandardTokens.t.sol` — non-standard ERC-20s (9)
 
 | EVM test | SVM counterpart | |
 |---|---|---|
@@ -234,6 +236,8 @@ All 50 EVM tests. Legend:
 | `test_Hole_FeeOnTransferTokenCanDeliverLessThanMin` | `deliver_token_token2022_transfer_fee_recipient_gets_less_than_min` | ✅ **The important one.** Both pin the same documented hole: the call succeeds while the recipient receives strictly less than `min`. |
 | `test_FeeOnTransferTokenIsStillFullySwept` | inside the test above | 🟰 subsumed. The SVM fee test also asserts the vault ATA ends at zero, but there is no standalone "fee mint is still fully swept" test. |
 | `test_FeeOnTransferTokenStillRevertsBelowMin` | none | ⚠️ gap. Writable on SVM (a fee mint funded below `min`); the pre-transfer check makes it behave identically. Not written. |
+| `test_SenderSurchargeTokenCannotBeSweptAndToppingUpDoesNotHelp` | none | 🚫 A token that debits `amount + fee` from the *sender* cannot exist on SVM. Token-2022's `TransferFee` withholds the fee **from** the transferred amount, so the sender never needs to hold more than it sends, and SPL Token has no fee mechanism at all. Octane bab5c2e7. |
+| `test_SenderSurchargeTokenWithZeroBalanceStillNoOps` | none | 🚫 Same reason. The zero-balance no-op itself *is* covered on SVM by `deliver_token_zero_balance_with_min_zero_succeeds_as_a_noop`. |
 
 ### `test/DeliverReentrancy.t.sol` — re-entry (6)
 

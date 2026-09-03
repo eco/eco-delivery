@@ -2,7 +2,12 @@
 pragma solidity 0.8.28;
 
 import {Deliver} from "../src/Deliver.sol";
-import {FalseReturningERC20, FeeOnTransferERC20, NoReturnERC20} from "./mocks/MockTokens.sol";
+import {
+    FalseReturningERC20,
+    FeeOnTransferERC20,
+    NoReturnERC20,
+    SenderSurchargeERC20
+} from "./mocks/MockTokens.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Test} from "forge-std/Test.sol";
@@ -110,5 +115,42 @@ contract DeliverNonStandardTokensTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(Deliver.BalanceBelowMin.selector, 10e18, 20e18));
         deliver.deliverToken(IERC20(address(fee)), recipient, 20e18);
+    }
+
+    /// A token that charges its fee **on top** of the transferred amount cannot be swept at all:
+    /// the contract holds exactly its balance and `safeTransfer(recipient, balance)` demands
+    /// `balance + fee`. The delivery reverts. Nothing is lost — this is fail-closed — but the asset
+    /// is undeliverable through this contract and must be filtered upstream.
+    ///
+    /// The non-obvious half, and the reason this is worth pinning: **topping the contract up does
+    /// not help.** The sweep then attempts the new, larger balance and falls short by the fee on
+    /// that larger amount, forever. There is no balance at which it starts working.
+    ///
+    /// No SVM counterpart exists. Token-2022's `TransferFee` extension withholds the fee *from* the
+    /// transferred amount, so the sender never needs to hold more than it is sending; SPL Token has
+    /// no fee mechanism at all. Raised as Octane bab5c2e7.
+    function test_SenderSurchargeTokenCannotBeSweptAndToppingUpDoesNotHelp() public {
+        SenderSurchargeERC20 token = new SenderSurchargeERC20(100, address(0xFEE)); // 1% on top
+        token.mint(address(deliver), 1000e18);
+
+        vm.expectRevert();
+        deliver.deliverToken(IERC20(address(token)), recipient, 1000e18);
+
+        // Adding headroom never closes the gap, at any size.
+        for (uint256 i = 0; i < 5; i++) {
+            token.mint(address(deliver), 100e18);
+            vm.expectRevert();
+            deliver.deliverToken(IERC20(address(token)), recipient, 0);
+        }
+
+        assertEq(token.balanceOf(address(deliver)), 1500e18, "balance untouched throughout");
+        assertEq(token.balanceOf(recipient), 0, "nothing was ever delivered");
+    }
+
+    /// The boundary: an empty balance still no-ops, because a fee on zero is zero.
+    function test_SenderSurchargeTokenWithZeroBalanceStillNoOps() public {
+        SenderSurchargeERC20 token = new SenderSurchargeERC20(100, address(0xFEE));
+        deliver.deliverToken(IERC20(address(token)), recipient, 0);
+        assertEq(token.balanceOf(recipient), 0);
     }
 }
