@@ -19,6 +19,9 @@ export {deliverIdl};
 /** The default program id, from the IDL the contracts were built with. */
 export const DELIVER_PROGRAM = new PublicKey(DELIVER_PROGRAM_ID);
 
+/** SPL Memo (v3) — the program the optional memo account must be, when supplied. */
+export const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
 const VAULT_SEED = Buffer.from(VAULT_SEED_STRING, "utf8");
 const U64_MAX = (1n << 64n) - 1n;
 
@@ -87,6 +90,16 @@ export interface DeliverTokenIxArgs {
   min: bigint;
   /** `TOKEN_PROGRAM_ID` or `TOKEN_2022_PROGRAM_ID`, whichever owns the mint. */
   tokenProgram?: PublicKey;
+  /**
+   * Set when the recipient's token account carries Token-2022's `MemoTransfer` extension with
+   * memos required. The program then emits a memo immediately before the transfer, which is the
+   * only place that requirement can be satisfied — Token-2022 checks the preceding *sibling*
+   * instruction, so a memo you add to the transaction yourself does not count.
+   *
+   * Leaving it `false` costs nothing; the account slot is still sent, holding the program id,
+   * which is how Anchor encodes an absent optional account.
+   */
+  requireMemo?: boolean;
   programId?: PublicKey;
 }
 
@@ -102,6 +115,7 @@ export function deliverTokenIx({
   recipient,
   min,
   tokenProgram = TOKEN_PROGRAM_ID,
+  requireMemo = false,
   programId = DELIVER_PROGRAM,
 }: DeliverTokenIxArgs): TransactionInstruction {
   return new TransactionInstruction({
@@ -121,6 +135,10 @@ export function deliverTokenIx({
       {pubkey: tokenProgram, isSigner: false, isWritable: false},
       {pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
       {pubkey: SystemProgram.programId, isSigner: false, isWritable: false},
+      // The optional memo account. Anchor encodes "absent" as the program's own id rather than by
+      // omitting the slot, so this entry is always present — sending nine accounts is rejected
+      // with `AccountNotEnoughKeys`.
+      {pubkey: requireMemo ? MEMO_PROGRAM : programId, isSigner: false, isWritable: false},
     ],
   });
 }

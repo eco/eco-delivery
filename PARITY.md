@@ -36,6 +36,7 @@ suites (EVM: 50 tests, `forge test`; SVM: 23 tests, `cargo test`). Every gap is 
 | 17 | `min` checked **pre-transfer** against the held balance | `min` checked **pre-transfer** against the held balance | **Yes** — including the shared under-delivery hole. See §2.2. |
 | 18 | Zero balance + `min == 0` succeeds as a no-op (a transfer of 0) | Zero balance + `min == 0` succeeds as a no-op (a `transfer_checked` of 0 is still issued) | **Yes**, deliberately matched on both sides, on both the token and the native path. |
 | 19 | Pre-existing dust is swept along with the delivery | Pre-existing dust is swept along with the delivery | **Yes.** |
+| 19a | No analogue — an ERC-20 recipient cannot impose conditions on an incoming `transfer` | **Token-2022 `MemoTransfer`.** A recipient may require every incoming transfer to be immediately preceded by a memo. `deliver_token` takes an **optional** SPL Memo program account and emits that memo when it is supplied | **No — SVM-only, and it has no EVM counterpart by construction.** ERC-20 has no mechanism for a recipient to gate receipt, so nothing on the EVM side needs to exist. Token-2022 checks the *preceding sibling instruction* via `get_processed_sibling_instruction`, which only sees the same CPI stack height, so a memo added at the top level of the transaction does **not** satisfy a transfer issued from inside `deliver_token` — the program is the only place it can be emitted. Pinned by `deliver_token_token2022_memo_required_recipient_is_rejected` (without) and `…_succeeds_with_memo_program` (with). Found by Octane 66f2d780. |
 | 20 | After a sweep the contract persists at zero balance | After `deliver_sol` the PDA is drained to zero lamports and **reaped by the runtime** | **No.** It springs back when next funded, so the observable primitive is the same, but "the vault still exists at zero" is not true on SVM. |
 
 ---
@@ -80,7 +81,7 @@ succeeds. Neither implementation detects it.
 |---|-----|-----|
 | Mechanism | Arbitrary token code; any ERC-20 may do anything on `transfer` | Token-2022 `TransferFee` extension, enforced by the token program |
 | Tested by | `test_Hole_FeeOnTransferTokenCanDeliverLessThanMin` (1% fee mock, `min == balance`, recipient gets `0.99 * min`) | `deliver_token_token2022_transfer_fee_recipient_gets_less_than_min` (5% fee mint, `min == 1_000_000`, recipient gets `950_000`) |
-| Breadth | **Wider.** Any under-delivering ERC-20 works and is swept: fee-on-transfer, rebasing, hook tokens | **Narrower.** `TransferFee` mints work. **Token-2022 `TransferHook` mints are NOT supported at all** |
+| Breadth | **Wider.** Any under-delivering ERC-20 works and is swept: fee-on-transfer, rebasing, hook tokens | **Narrower.** `TransferFee` mints work, and `MemoTransfer` recipients work when the optional memo account is supplied (row 19a). **Token-2022 `TransferHook` mints are NOT supported at all** |
 
 That last row is the one real coverage asymmetry, and it runs in SVM's disfavour. The
 `transfer_checked` CPI forwards exactly the four accounts the instruction needs and drops

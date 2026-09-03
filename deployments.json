@@ -44,6 +44,7 @@
     "immutable": false,
     "dataLength": 177576,
     "deploySignature": "2vYX98UecWa2wrAEmayzTtQqTFXT9cYJnsXEv1VQSX4w4cJKV5PCUYwmKFsum4z3zJae2s1NsyfXcFuJDJ3JPcmk",
-    "note": "UPGRADEABLE. The EVM contract has no upgrade path at all, so this is a real trust asymmetry between the two implementations - see PARITY.md. Make immutable with `solana program set-upgrade-authority --final` (irreversible), or move the authority to a multisig."
+    "note": "UPGRADEABLE, and the deployed bytecode PREDATES the optional memo account added for Octane 66f2d780. The deployed program still expects nine accounts on deliver_token, while the SDK in this repo now sends ten, so the SDK will NOT work against this deployment until the program is redeployed. Nothing is integrated yet, so this is safe today - but redeploy before anyone builds against it. Separately, the EVM contract has no upgrade path at all, so this is a real trust asymmetry between the two implementations - see PARITY.md. Make immutable with `solana program set-upgrade-authority --final` (irreversible) only AFTER redeploying, or move the authority to a multisig.",
+    "interfaceVersion": "pre-memo (9 accounts on deliver_token)"
   }
 }

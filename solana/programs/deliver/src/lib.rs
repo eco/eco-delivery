@@ -99,6 +99,14 @@
 //!   Supporting them would mean resolving and forwarding the hook's account list. If a hook mint is
 //!   ever in scope, that is the change to make. (`TransferFee` mints, by contrast, work — they just
 //!   expose the `min` hole above, which is why the fee case is the one that is tested.)
+//! - **Token-2022 `MemoTransfer` recipients ARE supported, opt-in.** A recipient can require that
+//!   every incoming transfer be immediately preceded by a memo. Token-2022 enforces that with the
+//!   `get_processed_sibling_instruction` syscall, which sees only siblings at the same CPI stack
+//!   height — so a memo placed at the top level of the transaction does *not* count, and no caller
+//!   can satisfy the requirement from outside. `deliver_token` therefore takes an **optional** SPL
+//!   Memo program account and, when it is supplied, emits the memo one CPI before the transfer.
+//!   Omit the account and nothing extra is emitted. Note the slot is always present on the wire:
+//!   Anchor encodes "absent" as this program's own id, so a nine-account caller is rejected.
 //! - **Re-entrancy.** Were a hook ever wired up, it could call back into this program. It would find
 //!   a vault token account that has already been debited, so a nested `deliver_token` sweeps zero
 //!   and either no-ops (`min == 0`) or fails the `min` check. There is no program state to corrupt.

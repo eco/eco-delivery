@@ -3,9 +3,16 @@ use {
     anchor_lang::prelude::*,
     anchor_spl::{
         associated_token::AssociatedToken,
+        memo::{build_memo, BuildMemo, Memo},
         token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
     },
 };
+
+/// The memo emitted before the transfer when [`DeliverToken::memo_program`] is supplied.
+///
+/// The content is not read by anything — Token-2022 only checks that the preceding sibling
+/// instruction belongs to the memo program — so this is purely a marker for anyone reading logs.
+const MEMO: &[u8] = b"eco-delivery";
 
 /// Accounts for [`handle_deliver_token`].
 ///
@@ -64,6 +71,24 @@ pub struct DeliverToken<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
+
+    /// SPL Memo, **optional**.
+    ///
+    /// Supply this only when the recipient's token account carries Token-2022's `MemoTransfer`
+    /// extension with memos required. When present, the handler emits a memo immediately before the
+    /// transfer so that requirement is satisfied; when absent, nothing extra is emitted and the
+    /// instruction behaves exactly as it did before this account existed.
+    ///
+    /// It has to be an account rather than something the program can do unilaterally because the
+    /// memo must be a real CPI to the memo program, and Solana requires the program being invoked
+    /// to be present in the transaction.
+    ///
+    /// **Adding this account was a breaking change.** Anchor represents an absent optional account
+    /// by putting this program's own id in the slot; the slot is never omitted. A client built
+    /// against the pre-memo IDL sends nine accounts and is rejected with `AccountNotEnoughKeys`.
+    /// Pinned by `deliver_token_legacy_nine_account_caller_is_rejected`. This was acceptable only
+    /// because nothing had integrated against the program yet.
+    pub memo_program: Option<Program<'info, Memo>>,
 }
 
 /// Sweep the vault's entire balance of `mint` to `recipient`, requiring at least `min`.
@@ -91,6 +116,16 @@ pub fn handle_deliver_token(ctx: Context<DeliverToken>, min: u64) -> Result<()> 
 
     let bump = ctx.bumps.vault_authority;
     let vault_seeds: &[&[u8]] = &[VAULT_SEED, &[bump]];
+
+    // Token-2022's `MemoTransfer` extension lets a *recipient* require that every incoming transfer
+    // be immediately preceded by a memo. It checks that with the `get_processed_sibling_instruction`
+    // syscall, which only sees siblings at the same CPI stack height — so a memo placed at the top
+    // level of the transaction does not count, and a caller cannot satisfy the requirement from
+    // outside this program. Emitting it here, one CPI before the transfer, is the only place it can
+    // be done. Skipped entirely when the account is absent, so the common path pays nothing.
+    if let Some(memo_program) = &ctx.accounts.memo_program {
+        build_memo(CpiContext::new(memo_program.key(), BuildMemo {}), MEMO)?;
+    }
 
     transfer_checked(
         CpiContext::new_with_signer(

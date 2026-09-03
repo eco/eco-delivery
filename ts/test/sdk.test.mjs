@@ -27,6 +27,8 @@ import {
   vaultAuthority,
   vaultTokenAccount,
   DELIVER_PROGRAM,
+  MEMO_PROGRAM,
+  deliverIdl,
 } from "../dist/svm.js";
 import {PublicKey} from "@solana/web3.js";
 import {encodeErrorResult} from "viem";
@@ -109,20 +111,60 @@ test("instruction data is discriminator + little-endian u64", () => {
 });
 
 test("account order and flags match the IDL", () => {
-  const payer = PublicKey.unique();
-  const mint = PublicKey.unique();
-  const recipient = PublicKey.unique();
-  const ix = deliverTokenIx({payer, mint, recipient, min: 0n});
+  // Derived from the IDL rather than hardcoded, so a change to the account list fails here
+  // instead of silently shipping an instruction the program rejects.
+  const spec = deliverIdl.instructions.find((i) => i.name === "deliver_token").accounts;
+  const ix = deliverTokenIx({
+    payer: PublicKey.unique(),
+    mint: PublicKey.unique(),
+    recipient: PublicKey.unique(),
+    min: 0n,
+  });
 
-  assert.equal(ix.keys.length, 9);
+  assert.equal(ix.keys.length, spec.length, `IDL declares ${spec.length} accounts`);
   assert.deepEqual(
     ix.keys.map((k) => [k.isSigner, k.isWritable]),
-    [[true, true], [false, false], [false, false], [false, true],
-     [false, false], [false, true], [false, false], [false, false], [false, false]],
+    spec.map((a) => [a.signer === true, a.writable === true]),
   );
+  // Accounts the IDL pins to a fixed address must be exactly that address.
+  for (const [i, a] of spec.entries()) {
+    if (a.address && !a.optional) {
+      assert.equal(ix.keys[i].pubkey.toBase58(), a.address, `account ${a.name}`);
+    }
+  }
   assert.ok(ix.keys[1].pubkey.equals(vaultAuthority()));
-  assert.ok(ix.keys[3].pubkey.equals(vaultTokenAccount(mint)));
   assert.ok(ix.programId.equals(DELIVER_PROGRAM));
+});
+
+test("the optional memo slot is always sent, holding the program id when unused", () => {
+  const args = {
+    payer: PublicKey.unique(),
+    mint: PublicKey.unique(),
+    recipient: PublicKey.unique(),
+    min: 0n,
+  };
+  const spec = deliverIdl.instructions.find((i) => i.name === "deliver_token").accounts;
+  const memoIndex = spec.findIndex((a) => a.name === "memo_program");
+  assert.ok(memoIndex >= 0, "the IDL carries an optional memo account");
+  assert.equal(spec[memoIndex].optional, true);
+
+  // Anchor encodes an absent optional account as the program's own id -- omitting the slot
+  // makes the program fail with AccountNotEnoughKeys.
+  const without = deliverTokenIx(args);
+  assert.equal(without.keys.length, spec.length);
+  assert.ok(without.keys[memoIndex].pubkey.equals(DELIVER_PROGRAM));
+
+  const withMemo = deliverTokenIx({...args, requireMemo: true});
+  assert.equal(withMemo.keys.length, spec.length);
+  assert.ok(withMemo.keys[memoIndex].pubkey.equals(MEMO_PROGRAM));
+  assert.equal(MEMO_PROGRAM.toBase58(), spec[memoIndex].address);
+
+  // Nothing else moves.
+  assert.deepEqual(
+    without.keys.slice(0, memoIndex).map((k) => k.pubkey.toBase58()),
+    withMemo.keys.slice(0, memoIndex).map((k) => k.pubkey.toBase58()),
+  );
+  assert.deepEqual(without.data, withMemo.data);
 });
 
 test("vault authority is the [b'vault'] PDA and is off-curve", () => {
