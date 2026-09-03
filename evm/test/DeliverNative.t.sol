@@ -3,6 +3,8 @@ pragma solidity 0.8.28;
 
 import {Deliver} from "../src/Deliver.sol";
 import {PassiveNativeRecipient, RejectingNativeRecipient} from "./mocks/MockReceivers.sol";
+import {MockERC20} from "./mocks/MockTokens.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
 /// @notice Native ETH path: the same sweep semantics and `min` boundaries as the ERC-20 path, plus
@@ -186,5 +188,24 @@ contract DeliverNativeTest is Test {
             assertEq(recipient.balance, balance, "success must deliver the full balance");
             assertEq(address(deliver).balance, 0);
         }
+    }
+
+    /// Naming the contract itself as recipient is a no-op that succeeds: the balance is sent to
+    /// the address that already holds it. Nothing is lost and nothing is delivered.
+    ///
+    /// Pinned because it was raised as a finding (Octane df9b0426) against the SVM twin, where
+    /// `deliver_sol` behaves the same way. Constraining it on one side only would be the real
+    /// defect — it would break parity. Note that a caller free to choose any recipient would name
+    /// *themselves* and take the funds, so this is strictly the weaker of the two things such a
+    /// caller can do; see `test_AnyoneCanDivertAStrandedBalance`.
+    function test_SelfDeliveryIsANoOpOnBothPaths() public {
+        vm.deal(address(deliver), 3 ether);
+        deliver.deliverNative(address(deliver), 3 ether);
+        assertEq(address(deliver).balance, 3 ether, "native: nothing moved, call succeeded");
+
+        MockERC20 token = new MockERC20();
+        token.mint(address(deliver), 1000e18);
+        deliver.deliverToken(IERC20(address(token)), address(deliver), 1000e18);
+        assertEq(token.balanceOf(address(deliver)), 1000e18, "token: nothing moved, call succeeded");
     }
 }

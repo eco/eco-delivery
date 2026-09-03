@@ -13,7 +13,14 @@ the call succeeds. That is a deliberate, tested carve-out, not an oversight; see
 One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust). Two encodings of
 one primitive, kept behaviourally identical on purpose.
 
-> **Not audited, not deployed.** Nothing here claims otherwise.
+> **Not audited.** Deployed, unaudited, to 13 EVM mainnets at
+> `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and to Solana mainnet-beta as
+> `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` — see [`deployments.json`](deployments.json).
+>
+> **Both sides are immutable.** The EVM contract has no upgrade path by construction; the Solana
+> program's upgrade authority was set to `none` on 2026-09-03, irreversibly. Each is trusted on its
+> bytecode alone, with no privileged party on either chain — and neither can ever be patched, so a
+> defect in either is permanent. See [PARITY.md](PARITY.md) row 13a.
 
 - [Why this exists](#why-this-exists) · [The guarantee](#the-guarantee) ·
   [**Integration guide →**](docs/INTEGRATING.md) · [**EVM ↔ SVM parity map →**](PARITY.md)
@@ -198,7 +205,7 @@ Dependencies are git submodules — clone with `--recurse-submodules`, or run
 ```bash
 cd solana
 anchor build                          # REQUIRED before cargo test
-cargo test                            # 23 tests, incl. 768 proptest cases
+cargo test                            # 28 tests, incl. 768 proptest cases
 cargo fmt --check && cargo clippy --all-targets
 ```
 
@@ -252,7 +259,7 @@ PARITY.md                                 EVM ↔ SVM behaviour and test map
 ## SDK
 
 Not published yet — the package is marked `private` so `npm publish` refuses it, and the
-contracts are unaudited and undeployed. Consume it from the repo until there is a release.
+contracts are unaudited. Consume it from the repo until there is a release.
 
 ```bash
 npm install @eco-foundation/delivery   # once published

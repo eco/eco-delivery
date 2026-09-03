@@ -292,6 +292,29 @@ export const deliverIdl = {
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "memo_program",
+          "docs": [
+            "SPL Memo, **optional**.",
+            "",
+            "Supply this only when the recipient's token account carries Token-2022's `MemoTransfer`",
+            "extension with memos required. When present, the handler emits a memo immediately before the",
+            "transfer so that requirement is satisfied; when absent, nothing extra is emitted and the",
+            "instruction behaves exactly as it did before this account existed.",
+            "",
+            "It has to be an account rather than something the program can do unilaterally because the",
+            "memo must be a real CPI to the memo program, and Solana requires the program being invoked",
+            "to be present in the transaction.",
+            "",
+            "**Adding this account was a breaking change.** Anchor represents an absent optional account",
+            "by putting this program's own id in the slot; the slot is never omitted. A client built",
+            "against the pre-memo IDL sends nine accounts and is rejected with `AccountNotEnoughKeys`.",
+            "Pinned by `deliver_token_legacy_nine_account_caller_is_rejected`. This was acceptable only",
+            "because nothing had integrated against the program yet."
+          ],
+          "optional": true,
+          "address": "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
         }
       ],
       "args": [

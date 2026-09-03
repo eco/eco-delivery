@@ -44,6 +44,16 @@ pub struct DeliverSol<'info> {
 /// precisely because the PDA holds no data and no rent-exempt state worth preserving; it springs
 /// back into existence the next time anyone funds it.
 ///
+/// One exception, for precision: if the caller names the vault PDA *itself* as `recipient`, the
+/// System Program transfer nets to zero and the call succeeds without moving anything. Nothing is
+/// lost and nothing is delivered. This is not special-cased, because EVM behaves identically —
+/// `deliverNative(address(this))` and `deliverToken(token, address(this))` are equally no-op
+/// successes — and diverging here would break parity to no benefit. It is also not reachable when
+/// the recipient is bound upstream, which is the security model; a caller who *can* choose an
+/// arbitrary recipient can simply name themselves and take the funds, which is strictly worse than
+/// aliasing to the vault. Pinned on both sides — see `deliver_sol_to_the_vault_itself_is_a_noop`
+/// and EVM `test_SelfDeliveryIsANoOpOnBothPaths`. (Octane df9b0426.)
+///
 /// The EVM sentinel encoding (`address(0)` and `0xEeee…eEEeE` both meaning "native") has no SVM
 /// counterpart: there is no token argument to overload, so native value gets its own instruction
 /// and nothing else. `deliver_token` cannot be tricked into a lamport sweep.

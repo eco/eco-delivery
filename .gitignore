@@ -29,3 +29,6 @@ ts/dist/
 
 # Solana program keypairs — never commit these
 solana/keys/
+
+# deploy results from script/deployAll.sh
+evm/deploy-results.csv

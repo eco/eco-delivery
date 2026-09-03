@@ -28,13 +28,17 @@ suites (EVM: 50 tests, `forge test`; SVM: 23 tests, `cargo test`). Every gap is 
 | 10 | Transfer: `SafeERC20.safeTransfer` | Transfer: `transfer_checked` CPI signed with `[b"vault", bump]` | **Yes** in effect. `transfer_checked` additionally validates mint + decimals, which has no ERC-20 equivalent. |
 | 11 | Vault topology: one contract address holds every asset | One vault-authority PDA, one ATA per mint, plus bare lamports | **No.** Structural. |
 | 12 | Amount width: `uint256` | `u64` | **No.** An SVM `min` above `u64::MAX` is unrepresentable. Not a practical limit (SPL supplies are `u64`), but it is a real signature difference. |
-| 13 | Stateless: no storage, no owner, no allowlist, no pause | Stateless: no program state; the vault PDA is never allocated data | **Yes.** |
+| 13 | Stateless: no storage, no owner, no allowlist, no pause | Stateless: no program state; the vault PDA is never allocated data | **Yes** for stored state. |
+| 13a | **No upgrade path.** The deployed bytecode is final; nobody can change it | **No upgrade path.** Upgrade authority set to `none` on 2026-09-03, irreversibly | **Yes — this divergence is closed.** It was formerly the sharpest gap in this table: a Solana integrator had to trust whoever held the upgrade authority, an EVM integrator only the code. Both sides are now final and unchangeable, so each is trusted on its bytecode alone. The cost is that neither can ever be patched; a defect in either is permanent and requires a redeploy at a new address plus integrator migration. |
 | 14 | Permissionless: any caller, caller picks the recipient | Permissionless: any signer, caller picks the recipient | **Yes**, with one cost asymmetry — the SVM caller may pay ATA rent. See §2.1. |
 | 15 | No events; the ERC-20 `Transfer` log is the outcome record | No events; the SPL `TransferChecked` instruction and balance change are the outcome record | **Yes**, same decision on both sides — including the same gap: the *native* paths (`deliverNative`, `deliver_sol`) emit no log at all, so native deliveries are visible only in traces / balance deltas, never as a subscribable event. |
 | 16 | Recipient never validated, including `address(0)` | Recipient never validated, including `Pubkey::default()` | **Yes** as a policy. On SVM the hazard is *documented only*, not tested — see §3, EVM case 36. |
+| 16a | `deliverToken`/`deliverNative` with `recipient == address(this)` succeeds and moves nothing | `deliver_sol` with `recipient == vault_authority` succeeds and moves nothing | **Yes** — identical on both sides, and pinned on both. A caller naming the contract itself gets a no-op success: no loss, no delivery. Not special-cased anywhere, because constraining it on one side only would be the divergence. Unreachable when the recipient is bound upstream, and a caller free to choose any recipient would name *themselves* rather than the vault. Raised as Octane df9b0426 and rejected on these grounds. |
+| 16b | No analogue — an ERC-20 has no standard account-freezing model, so `Deliver` cannot be blocked this way | **Token-2022 `DefaultAccountState::Frozen`.** Every account for the mint is created frozen, so both the vault ATA and an `init_if_needed` recipient ATA start unusable and `transfer_checked` fails with `AccountFrozen` | **No — SVM-only.** Not worked around: such a mint is a permissioned asset whose freeze-authority holder can re-freeze at will, so it is incompatible with permissionless push-delivery by construction. Fail-closed, nothing lost. Needs no program support either — a caller with the freeze authority creates and thaws the recipient ATA with **top-level** instructions in the same transaction and delivery succeeds unmodified, unlike `MemoTransfer` (row 19a) where the sibling-instruction check made that impossible. Raised as Octane 01c1d77c and rejected on these grounds. |
 | 17 | `min` checked **pre-transfer** against the held balance | `min` checked **pre-transfer** against the held balance | **Yes** — including the shared under-delivery hole. See §2.2. |
 | 18 | Zero balance + `min == 0` succeeds as a no-op (a transfer of 0) | Zero balance + `min == 0` succeeds as a no-op (a `transfer_checked` of 0 is still issued) | **Yes**, deliberately matched on both sides, on both the token and the native path. |
 | 19 | Pre-existing dust is swept along with the delivery | Pre-existing dust is swept along with the delivery | **Yes.** |
+| 19a | No analogue — an ERC-20 recipient cannot impose conditions on an incoming `transfer` | **Token-2022 `MemoTransfer`.** A recipient may require every incoming transfer to be immediately preceded by a memo. `deliver_token` takes an **optional** SPL Memo program account and emits that memo when it is supplied | **No — SVM-only, and it has no EVM counterpart by construction.** ERC-20 has no mechanism for a recipient to gate receipt, so nothing on the EVM side needs to exist. Token-2022 checks the *preceding sibling instruction* via `get_processed_sibling_instruction`, which only sees the same CPI stack height, so a memo added at the top level of the transaction does **not** satisfy a transfer issued from inside `deliver_token` — the program is the only place it can be emitted. Pinned by `deliver_token_token2022_memo_required_recipient_is_rejected` (without) and `…_succeeds_with_memo_program` (with). Found by Octane 66f2d780. |
 | 20 | After a sweep the contract persists at zero balance | After `deliver_sol` the PDA is drained to zero lamports and **reaped by the runtime** | **No.** It springs back when next funded, so the observable primitive is the same, but "the vault still exists at zero" is not true on SVM. |
 
 ---
@@ -79,7 +83,7 @@ succeeds. Neither implementation detects it.
 |---|-----|-----|
 | Mechanism | Arbitrary token code; any ERC-20 may do anything on `transfer` | Token-2022 `TransferFee` extension, enforced by the token program |
 | Tested by | `test_Hole_FeeOnTransferTokenCanDeliverLessThanMin` (1% fee mock, `min == balance`, recipient gets `0.99 * min`) | `deliver_token_token2022_transfer_fee_recipient_gets_less_than_min` (5% fee mint, `min == 1_000_000`, recipient gets `950_000`) |
-| Breadth | **Wider.** Any under-delivering ERC-20 works and is swept: fee-on-transfer, rebasing, hook tokens | **Narrower.** `TransferFee` mints work. **Token-2022 `TransferHook` mints are NOT supported at all** |
+| Breadth | **Wider.** Any under-delivering ERC-20 works and is swept: fee-on-transfer, rebasing, hook tokens | **Narrower.** `TransferFee` mints work, and `MemoTransfer` recipients work when the optional memo account is supplied (row 19a). **Token-2022 `TransferHook` mints are NOT supported at all** |
 
 That last row is the one real coverage asymmetry, and it runs in SVM's disfavour. The
 `transfer_checked` CPI forwards exactly the four accounts the instruction needs and drops
@@ -221,7 +225,7 @@ All 50 EVM tests. Legend:
 | `test_Hazard_UninitializedTokenSweepsEthInsteadOfReverting` | **The hazard itself does not exist on SVM** — an unset mint field cannot become a native sweep. The parallel hazard (an unvalidated recipient, `Pubkey::default()` included) does exist there, is documented in the module docs, and is **not tested**. ⚠️ |
 | `testFuzz_SentinelBoundaryBalanceVersusMin` | No sentinel to fuzz. There is no token-address argument on this side to overload, so the dispatch this fuzzes cannot exist. |
 
-### `test/DeliverNonStandardTokens.t.sol` — non-standard ERC-20s (7)
+### `test/DeliverNonStandardTokens.t.sol` — non-standard ERC-20s (9)
 
 | EVM test | SVM counterpart | |
 |---|---|---|
@@ -232,6 +236,8 @@ All 50 EVM tests. Legend:
 | `test_Hole_FeeOnTransferTokenCanDeliverLessThanMin` | `deliver_token_token2022_transfer_fee_recipient_gets_less_than_min` | ✅ **The important one.** Both pin the same documented hole: the call succeeds while the recipient receives strictly less than `min`. |
 | `test_FeeOnTransferTokenIsStillFullySwept` | inside the test above | 🟰 subsumed. The SVM fee test also asserts the vault ATA ends at zero, but there is no standalone "fee mint is still fully swept" test. |
 | `test_FeeOnTransferTokenStillRevertsBelowMin` | none | ⚠️ gap. Writable on SVM (a fee mint funded below `min`); the pre-transfer check makes it behave identically. Not written. |
+| `test_SenderSurchargeTokenCannotBeSweptAndToppingUpDoesNotHelp` | none | 🚫 A token that debits `amount + fee` from the *sender* cannot exist on SVM. Token-2022's `TransferFee` withholds the fee **from** the transferred amount, so the sender never needs to hold more than it sends, and SPL Token has no fee mechanism at all. Octane bab5c2e7. |
+| `test_SenderSurchargeTokenWithZeroBalanceStillNoOps` | none | 🚫 Same reason. The zero-balance no-op itself *is* covered on SVM by `deliver_token_zero_balance_with_min_zero_succeeds_as_a_noop`. |
 
 ### `test/DeliverReentrancy.t.sol` — re-entry (6)
 
@@ -295,4 +301,5 @@ Known and accepted, in rough order of how much they matter:
    `spl_token` 3.5.0, `spl_token_2022` 10.0.0, `spl_associated_token_account` 1.1.1).
 9. Both sides now have a deploy script (`evm/script/Deploy.s.sol`, `anchor run deploy-*`; see
    `docs/DEPLOYING.md`), and CI runs both suites plus the SDK on every push
-   (`.github/workflows/ci.yml`). Nothing has been deployed to a real network.
+   (`.github/workflows/ci.yml`). The EVM side is deployed to 13 mainnets at
+   `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673`; the Solana program is not deployed anywhere.

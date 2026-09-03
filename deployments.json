@@ -1,0 +1,53 @@
+{
+  "evm": {
+    "address": "0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673",
+    "contract": "evm/src/Deliver.sol:Deliver",
+    "mechanism": "CreateX CREATE2, unguarded salt",
+    "createx": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+    "salt": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "runtimeCodeHash": "0xe26b864ed88ca7ee6ed942372665ec7341f4f93ebfd83789afc6a126e6200d4d",
+    "compiler": {
+      "solc": "0.8.28",
+      "optimizer": true,
+      "optimizerRuns": 1000000,
+      "evmVersion": "paris",
+      "bytecodeHash": "none"
+    },
+    "chains": [
+      1,
+      10,
+      56,
+      130,
+      137,
+      143,
+      146,
+      999,
+      8453,
+      9745,
+      42161,
+      42220,
+      57073
+    ],
+    "notDeployed": {
+      "2020": "ronin \u2014 deployer unfunded, deliberately skipped"
+    },
+    "chainNotes": {
+      "143": "monad \u2014 not in eco-chains or eco-swap chaindata; added here. First chain reached purely because the salt is unguarded."
+    }
+  },
+  "svm": {
+    "programId": "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw",
+    "cluster": "mainnet-beta",
+    "deployed": true,
+    "programDataAddress": "3fSte1CavfxiGhAPXMWDL7n3M8btL8R9avMAnhemzmos",
+    "upgradeAuthority": null,
+    "immutable": true,
+    "dataLength": 181352,
+    "deploySignature": "44UXbtgYZBhRUVYWNkVGDGjrW77GYLeDed1NXZwrcW2sbbNuzURQBEgrYR1bVSkYBWKFQ2YTstHJZPubzK321Hsd",
+    "note": "IMMUTABLE. Upgrade authority set to none on 2026-09-03, irreversibly; confirmed on two independent RPCs. Carries the optional SPL Memo account on deliver_token (Octane 66f2d780), so deliver_token takes ten accounts - a client built against the earlier nine-account interface is rejected with AccountNotEnoughKeys. On-chain bytes verified byte-identical to the local build before finalising (sha256 above, first 181352 bytes; the account is allocated larger after `solana program extend`, remainder is zero padding). Both implementations are now final and unchangeable, closing the trust asymmetry formerly recorded in PARITY.md row 13a.",
+    "interfaceVersion": "memo (10 accounts on deliver_token)",
+    "allocatedLength": 193960,
+    "programSha256": "6057b4f34f53868efb0b2c54e5bd2dbf221429c9d54608839d9765bbe162efa5",
+    "lastDeployedSlot": 444085631
+  }
+}

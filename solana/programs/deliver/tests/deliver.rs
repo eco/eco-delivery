@@ -25,6 +25,7 @@ use {
             spl_associated_token_account::instruction::create_associated_token_account,
             ID as ASSOCIATED_TOKEN_PROGRAM_ID,
         },
+        memo::ID as MEMO_PROGRAM_ID,
         token::spl_token,
         token_2022::spl_token_2022,
     },
@@ -291,6 +292,27 @@ impl Fixture {
     }
 
     fn deliver_token_ix(&self, caller: &Pubkey, recipient: &Pubkey, min: u64) -> Instruction {
+        self.deliver_token_ix_inner(caller, recipient, min, None)
+    }
+
+    /// Same, but supplying the optional SPL Memo program so the handler emits a memo before the
+    /// transfer — what a caller delivering into a memo-required Token-2022 account must do.
+    fn deliver_token_ix_with_memo(
+        &self,
+        caller: &Pubkey,
+        recipient: &Pubkey,
+        min: u64,
+    ) -> Instruction {
+        self.deliver_token_ix_inner(caller, recipient, min, Some(MEMO_PROGRAM_ID))
+    }
+
+    fn deliver_token_ix_inner(
+        &self,
+        caller: &Pubkey,
+        recipient: &Pubkey,
+        min: u64,
+        memo_program: Option<Pubkey>,
+    ) -> Instruction {
         Instruction::new_with_bytes(
             deliver::ID,
             &deliver::instruction::DeliverToken { min }.data(),
@@ -304,6 +326,7 @@ impl Fixture {
                 token_program: self.token_program,
                 associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
                 system_program: system_program::ID,
+                memo_program,
             }
             .to_account_metas(None),
         )
@@ -948,4 +971,492 @@ proptest! {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Token-2022 MemoTransfer (Octane 66f2d780)
+// ---------------------------------------------------------------------------------------------
+//
+// A recipient may enable `MemoTransfer` on their own ATA, which makes Token-2022 require that the
+// instruction *immediately preceding the transfer, at the same CPI stack height* be a memo. It
+// enforces that with the `get_processed_sibling_instruction` syscall — no Instructions sysvar and
+// no extra account is involved, so a memo placed at the top level of the transaction does not
+// satisfy a transfer issued from inside `deliver_token`. A caller therefore cannot work around
+// this from outside the program.
+
+/// Give `owner`'s ATA for the fixture mint the MemoTransfer extension, with memos required.
+///
+/// The ATA program sizes a new account from the *mint's* extensions, and MemoTransfer is an
+/// account-level extension, so the account has to be reallocated before it can be enabled.
+fn enable_required_memos(f: &mut Fixture, owner: &Keypair) -> Pubkey {
+    let ata = f.recipient_ata(&owner.pubkey());
+    let payer = f.payer.insecure_clone();
+    send_ok(
+        &mut f.svm,
+        &[create_associated_token_account(
+            &payer.pubkey(),
+            &owner.pubkey(),
+            &f.mint,
+            &f.token_program,
+        )],
+        &payer,
+        &[],
+    );
+    send_ok(
+        &mut f.svm,
+        &[
+            spl_token_2022::instruction::reallocate(
+                &f.token_program,
+                &ata,
+                &payer.pubkey(),
+                &owner.pubkey(),
+                &[],
+                &[spl_token_2022::extension::ExtensionType::MemoTransfer],
+            )
+            .unwrap(),
+            spl_token_2022::extension::memo_transfer::instruction::enable_required_transfer_memos(
+                &f.token_program,
+                &ata,
+                &owner.pubkey(),
+                &[],
+            )
+            .unwrap(),
+        ],
+        &payer,
+        &[owner],
+    );
+    ata
+}
+
+/// The repro: delivering into a memo-required ATA fails outright.
+#[test]
+fn deliver_token_token2022_memo_required_recipient_is_rejected() {
+    let mut f = fixture(spl_token_2022::ID, None);
+    let recipient = funded_keypair(&mut f.svm, 10);
+    let ata = enable_required_memos(&mut f, &recipient);
+
+    f.fund_vault(1_000_000);
+    let res = f.deliver(&recipient.pubkey(), 0);
+
+    let e = res.expect_err("expected the Token-2022 memo check to reject this transfer");
+    assert!(
+        e.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("No memo in previous instruction")),
+        "expected Token-2022 NoMemo, got {:?}\nlogs: {:#?}",
+        e.err,
+        e.meta.logs
+    );
+    // Fail-closed: nothing moved.
+    assert_eq!(token_balance(&f.svm, &f.vault_ata), 1_000_000);
+    assert_eq!(token_balance(&f.svm, &ata), 0);
+}
+
+/// A memo at the TOP LEVEL of the transaction does not help, because it is not a sibling of the
+/// `transfer_checked` CPI that `deliver_token` issues. This is what makes it unfixable by callers.
+#[test]
+fn deliver_token_token2022_top_level_memo_does_not_satisfy_the_check() {
+    let mut f = fixture(spl_token_2022::ID, None);
+    let recipient = funded_keypair(&mut f.svm, 10);
+    enable_required_memos(&mut f, &recipient);
+    f.fund_vault(1_000_000);
+
+    let payer = f.payer.insecure_clone();
+    let memo_ix = Instruction::new_with_bytes(MEMO_PROGRAM_ID, b"deliver", vec![]);
+    let deliver_ix = f.deliver_token_ix(&payer.pubkey(), &recipient.pubkey(), 0);
+    let res = send(&mut f.svm, &[memo_ix, deliver_ix], &payer, &[]);
+
+    let e = res.expect_err("a top-level memo must not satisfy a nested CPI's memo check");
+    assert!(
+        e.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("No memo in previous instruction")),
+        "expected NoMemo even with a top-level memo, got {:?}\nlogs: {:#?}",
+        e.err,
+        e.meta.logs
+    );
+}
+
+/// With the optional memo program supplied, the same delivery succeeds: the handler emits a memo
+/// as the sibling instruction immediately before `transfer_checked`, which is what the extension
+/// requires.
+#[test]
+fn deliver_token_token2022_memo_required_succeeds_with_memo_program() {
+    let mut f = fixture(spl_token_2022::ID, None);
+    let recipient = funded_keypair(&mut f.svm, 10);
+    let ata = enable_required_memos(&mut f, &recipient);
+
+    let held = 1_000_000u64;
+    f.fund_vault(held);
+
+    let payer = f.payer.insecure_clone();
+    let ix = f.deliver_token_ix_with_memo(&payer.pubkey(), &recipient.pubkey(), held);
+    send_ok(&mut f.svm, &[ix], &payer, &[]);
+
+    assert_eq!(token_balance(&f.svm, &ata), held, "full balance delivered");
+    assert_eq!(token_balance(&f.svm, &f.vault_ata), 0, "vault swept");
+}
+
+/// The optional account changes nothing for everyone else: an ordinary SPL Token delivery works
+/// identically whether or not the memo program is supplied.
+#[test]
+fn deliver_token_memo_program_is_optional_for_ordinary_mints() {
+    for with_memo in [false, true] {
+        let mut f = spl_fixture();
+        let recipient = Pubkey::new_unique();
+        f.fund_vault(500_000);
+
+        let payer = f.payer.insecure_clone();
+        let ix = if with_memo {
+            f.deliver_token_ix_with_memo(&payer.pubkey(), &recipient, 500_000)
+        } else {
+            f.deliver_token_ix(&payer.pubkey(), &recipient, 500_000)
+        };
+        send_ok(&mut f.svm, &[ix], &payer, &[]);
+
+        assert_eq!(
+            token_balance(&f.svm, &f.recipient_ata(&recipient)),
+            500_000,
+            "with_memo={with_memo}"
+        );
+    }
+}
+
+/// Adding the optional account IS a breaking wire change, and this pins it so nobody assumes
+/// otherwise. Anchor represents an absent optional account by the *program's own id* occupying the
+/// slot — the slot itself is never omitted — so a client built against the pre-memo IDL, which
+/// sends only nine accounts, is rejected with `AccountNotEnoughKeys`.
+///
+/// This is acceptable only because nothing is integrated against the program yet. It is the reason
+/// the change belongs before integration rather than after.
+#[test]
+fn deliver_token_legacy_nine_account_caller_is_rejected() {
+    let mut f = spl_fixture();
+    let recipient = Pubkey::new_unique();
+    f.fund_vault(750_000);
+
+    let payer = f.payer.insecure_clone();
+    let mut ix = f.deliver_token_ix(&payer.pubkey(), &recipient, 750_000);
+    assert_eq!(ix.accounts.len(), 10, "the optional slot is always emitted");
+    ix.accounts.truncate(9); // what a pre-memo client sends
+
+    let e = send(&mut f.svm, &[ix], &payer, &[])
+        .expect_err("a nine-account caller must not silently succeed");
+    assert!(
+        e.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("AccountNotEnoughKeys")),
+        "expected AccountNotEnoughKeys, got {:?}\nlogs: {:#?}",
+        e.err,
+        e.meta.logs
+    );
+}
+
+/// Naming the vault PDA itself as `recipient` is a no-op that succeeds: the System Program
+/// transfer nets to zero. Nothing is lost and nothing is delivered.
+///
+/// The EVM twin does exactly the same on both of its paths — see `test_SelfDeliveryIsANoOpOnBothPaths`
+/// — so this is pinned rather than constrained. Rejecting it here alone would be the divergence.
+/// Raised as Octane df9b0426; see PARITY.md row 16a for why it is not a defect.
+#[test]
+fn deliver_sol_to_the_vault_itself_is_a_noop() {
+    let mut svm = new_svm();
+    let caller = funded_keypair(&mut svm, 10);
+    let vault = vault_authority();
+    svm.airdrop(&vault, 3 * LAMPORTS_PER_SOL).unwrap();
+    let before = svm.get_balance(&vault).unwrap();
+
+    send_ok(
+        &mut svm,
+        &[deliver_sol_ix(&caller.pubkey(), &vault, before)],
+        &caller,
+        &[],
+    );
+
+    assert_eq!(
+        svm.get_balance(&vault).unwrap(),
+        before,
+        "the call succeeded and moved nothing"
+    );
+
+    // ...and the balance is still there for a real delivery, which is what actually drains it.
+    let recipient = funded_keypair(&mut svm, 1);
+    let recipient_before = svm.get_balance(&recipient.pubkey()).unwrap();
+    send_ok(
+        &mut svm,
+        &[deliver_sol_ix(
+            &caller.pubkey(),
+            &recipient.pubkey(),
+            before,
+        )],
+        &caller,
+        &[],
+    );
+    assert_eq!(svm.get_balance(&vault).unwrap_or(0), 0, "drained for real");
+    assert_eq!(
+        svm.get_balance(&recipient.pubkey()).unwrap(),
+        recipient_before + before
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Token-2022 DefaultAccountState::Frozen (Octane 01c1d77c)
+// ---------------------------------------------------------------------------------------------
+
+/// Stand up a Token-2022 mint whose `DefaultAccountState` is `Frozen`, so every token account
+/// created for it starts frozen. Returns `(svm, payer, mint, mint_authority, freeze_authority)`.
+fn default_frozen_fixture() -> (LiteSVM, Keypair, Pubkey, Keypair, Keypair) {
+    use spl_token_2022::{extension::ExtensionType, state::AccountState};
+
+    let mut svm = new_svm();
+    let payer = funded_keypair(&mut svm, 100);
+    let mint_authority = funded_keypair(&mut svm, 10);
+    let freeze_authority = funded_keypair(&mut svm, 10);
+    let mint_kp = Keypair::new();
+    let mint = mint_kp.pubkey();
+
+    let space = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(&[
+        ExtensionType::DefaultAccountState,
+    ])
+    .unwrap();
+    let rent = svm.minimum_balance_for_rent_exemption(space);
+    send_ok(
+        &mut svm,
+        &[
+            system_instruction::create_account(
+                &payer.pubkey(),
+                &mint,
+                rent,
+                space as u64,
+                &spl_token_2022::ID,
+            ),
+            spl_token_2022::extension::default_account_state::instruction::initialize_default_account_state(
+                &spl_token_2022::ID,
+                &mint,
+                &AccountState::Frozen,
+            )
+            .unwrap(),
+            spl_token_2022::instruction::initialize_mint2(
+                &spl_token_2022::ID,
+                &mint,
+                &mint_authority.pubkey(),
+                Some(&freeze_authority.pubkey()),
+                DECIMALS,
+            )
+            .unwrap(),
+        ],
+        &payer,
+        &[&mint_kp],
+    );
+
+    (svm, payer, mint, mint_authority, freeze_authority)
+}
+
+/// A `DefaultAccountState::Frozen` mint cannot be delivered without the freeze authority's
+/// cooperation, and the obstruction starts well before `deliver_token`: even the *vault* ATA is
+/// created frozen, so the vault cannot be funded until someone thaws it.
+///
+/// This is a property of the mint, not of this program. Such a mint is a permissioned asset —
+/// whoever holds the freeze authority can re-freeze at any moment — and is therefore fundamentally
+/// incompatible with permissionless push-delivery. Fail-closed: the transaction reverts, nothing
+/// is lost. Documented, not worked around. See the module docs.
+#[test]
+fn deliver_token_token2022_default_frozen_recipient_ata_is_rejected() {
+    let (mut svm, payer, mint, mint_authority, freeze_authority) = default_frozen_fixture();
+    let tp = spl_token_2022::ID;
+    let vault = vault_authority();
+    let vault_ata = get_associated_token_address_with_program_id(&vault, &mint, &tp);
+
+    send_ok(
+        &mut svm,
+        &[create_associated_token_account(
+            &payer.pubkey(),
+            &vault,
+            &mint,
+            &tp,
+        )],
+        &payer,
+        &[],
+    );
+
+    // Even the vault ATA starts frozen, so funding is blocked first.
+    let state =
+        spl_token_2022::extension::StateWithExtensions::<spl_token_2022::state::Account>::unpack(
+            &svm.get_account(&vault_ata).unwrap().data,
+        )
+        .unwrap()
+        .base
+        .state;
+    assert_eq!(
+        state,
+        spl_token_2022::state::AccountState::Frozen,
+        "the vault ATA itself is created frozen"
+    );
+
+    // Thaw and fund the vault so we reach deliver_token at all.
+    send_ok(
+        &mut svm,
+        &[spl_token_2022::instruction::thaw_account(
+            &tp,
+            &vault_ata,
+            &mint,
+            &freeze_authority.pubkey(),
+            &[],
+        )
+        .unwrap()],
+        &payer,
+        &[&freeze_authority],
+    );
+    send_ok(
+        &mut svm,
+        &[ix_mint_to(
+            &tp,
+            &mint,
+            &vault_ata,
+            &mint_authority.pubkey(),
+            1_000_000,
+        )],
+        &mint_authority,
+        &[],
+    );
+
+    // The recipient ATA does not exist; init_if_needed creates it frozen and the transfer fails.
+    let recipient = Pubkey::new_unique();
+    let r_ata = get_associated_token_address_with_program_id(&recipient, &mint, &tp);
+    let ix = frozen_deliver_ix(
+        &payer.pubkey(),
+        vault,
+        mint,
+        vault_ata,
+        recipient,
+        r_ata,
+        tp,
+    );
+
+    let e = send(&mut svm, &[ix], &payer, &[]).expect_err("expected AccountFrozen");
+    assert!(
+        format!("{:?}", e.err).contains("Custom(17)"),
+        "expected Token-2022 AccountFrozen (17), got {:?}\nlogs: {:#?}",
+        e.err,
+        e.meta.logs
+    );
+    assert_eq!(token_balance(&svm, &vault_ata), 1_000_000, "nothing moved");
+}
+
+/// The reason no program change is warranted: a caller who holds the freeze authority can create
+/// and thaw the recipient ATA with **ordinary top-level instructions in the same transaction**,
+/// and delivery then succeeds unmodified.
+///
+/// Contrast with `MemoTransfer` (Octane 66f2d780), where the check inspects CPI *siblings* and a
+/// top-level instruction genuinely could not satisfy it — which is why that one needed a program
+/// change and this one does not. Thawing carries no such constraint.
+#[test]
+fn deliver_token_token2022_default_frozen_succeeds_with_a_top_level_thaw() {
+    let (mut svm, payer, mint, mint_authority, freeze_authority) = default_frozen_fixture();
+    let tp = spl_token_2022::ID;
+    let vault = vault_authority();
+    let vault_ata = get_associated_token_address_with_program_id(&vault, &mint, &tp);
+
+    send_ok(
+        &mut svm,
+        &[create_associated_token_account(
+            &payer.pubkey(),
+            &vault,
+            &mint,
+            &tp,
+        )],
+        &payer,
+        &[],
+    );
+    send_ok(
+        &mut svm,
+        &[spl_token_2022::instruction::thaw_account(
+            &tp,
+            &vault_ata,
+            &mint,
+            &freeze_authority.pubkey(),
+            &[],
+        )
+        .unwrap()],
+        &payer,
+        &[&freeze_authority],
+    );
+    send_ok(
+        &mut svm,
+        &[ix_mint_to(
+            &tp,
+            &mint,
+            &vault_ata,
+            &mint_authority.pubkey(),
+            1_000_000,
+        )],
+        &mint_authority,
+        &[],
+    );
+
+    let recipient = Pubkey::new_unique();
+    let r_ata = get_associated_token_address_with_program_id(&recipient, &mint, &tp);
+
+    // create ATA, thaw it, deliver -- all top level, one transaction, no program change.
+    send_ok(
+        &mut svm,
+        &[
+            create_associated_token_account(&payer.pubkey(), &recipient, &mint, &tp),
+            spl_token_2022::instruction::thaw_account(
+                &tp,
+                &r_ata,
+                &mint,
+                &freeze_authority.pubkey(),
+                &[],
+            )
+            .unwrap(),
+            frozen_deliver_ix(
+                &payer.pubkey(),
+                vault,
+                mint,
+                vault_ata,
+                recipient,
+                r_ata,
+                tp,
+            ),
+        ],
+        &payer,
+        &[&freeze_authority],
+    );
+
+    assert_eq!(token_balance(&svm, &r_ata), 1_000_000, "delivered in full");
+    assert_eq!(token_balance(&svm, &vault_ata), 0, "vault swept");
+}
+
+#[allow(clippy::too_many_arguments)]
+fn frozen_deliver_ix(
+    payer: &Pubkey,
+    vault: Pubkey,
+    mint: Pubkey,
+    vault_ata: Pubkey,
+    recipient: Pubkey,
+    recipient_ata: Pubkey,
+    token_program: Pubkey,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        deliver::ID,
+        &deliver::instruction::DeliverToken { min: 0 }.data(),
+        deliver::accounts::DeliverToken {
+            payer: *payer,
+            vault_authority: vault,
+            mint,
+            vault_token_account: vault_ata,
+            recipient,
+            recipient_token_account: recipient_ata,
+            token_program,
+            associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
+            system_program: system_program::ID,
+            // These mints are frozen, not memo-gated; the optional memo account stays absent.
+            memo_program: None,
+        }
+        .to_account_metas(None),
+    )
 }

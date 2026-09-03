@@ -29,8 +29,48 @@ PRIVATE_KEY=0x... SALT=0x... forge script script/Deploy.s.sol \
 The script is **idempotent** — a second run against a chain that already has the contract prints
 `Already deployed, nothing to do.` and exits, so it is safe to re-run across a chain list.
 
-There is no chain list in this repo, matching `eco-routes`: chains are supplied per invocation via
-`$RPC_URL`, and the chain set is a deployment-time decision rather than a committed file.
+### The chain set
+
+`evm/script/chaindata.json` is **copied from `eco-swap-gateway/evm/script/chaindata.json`**, so
+EcoDelivery lands on exactly the chains eco-swap is deployed to. Keep the two in sync when either
+moves — nothing enforces it automatically.
+
+| | | | |
+|---|---|---|---|
+| `1` ethereum | `10` optimism | `56` bnb | `130` unichain |
+| `137` polygon | `146` sonic | `999` hyperevm | `2020` ronin |
+| `8453` base | `9745` plasma | `42161` arbitrum | `42220` celo |
+| `57073` ink | | | |
+
+All mainnet; no testnets. eco's shared CREATE3 deployer was verified present on **all thirteen**
+(polygon needed a non-default RPC to confirm, the endpoint in chaindata was down at the time).
+
+### Deploying the whole set
+
+```bash
+cd evm
+
+# predict everywhere, broadcast nothing
+DRY_RUN=true ALCHEMY_API_KEY=... SALT=0x... PRIVATE_KEY=0x... ./script/deployAll.sh
+
+# deploy
+ALCHEMY_API_KEY=... SALT=0x... PRIVATE_KEY=0x... ./script/deployAll.sh
+
+# one chain, or retry the ones that failed
+ONLY=10,8453 ... ./script/deployAll.sh
+```
+
+Every chain is idempotent, so the script is safe to re-run and safe to run again after adding a
+chain. It writes a CSV of results and **fails loudly if the chains do not all agree on the same
+address** — that agreement is the entire point of the CREATE3 setup, and a partial fleet where it
+silently does not hold is worse than a failed deploy.
+
+A note on deployer choice: `eco-swap-gateway` deploys through **CreateX** with an unguarded salt, so
+*any* deployer can reproduce its address on a new chain. This repo follows `eco-routes` instead and
+uses eco's CREATE3 deployer, where the address is derived from `(deployer, salt)` — reproducible
+only by that deployer. Both contracts are present on all thirteen chains, so either would work; the
+difference is who can extend the deployment later. Worth a deliberate decision rather than
+inheriting mine.
 
 ### The salt rule
 
@@ -66,10 +106,19 @@ the `Eco…` convention used by the programs in `eco-routes-svm`. It replaces th
 
 ```bash
 cd solana
-anchor build
-anchor run deploy-devnet     # anchor deploy --provider.cluster devnet  --program-name deliver
-anchor run deploy-mainnet    # anchor deploy --provider.cluster mainnet --program-name deliver
+SOLANA_RPC_URL=... DEPLOYER_KEYPAIR=/path/to/deployer.json ./script/deploy.sh
 ```
+
+**Deploys are immutable by default.** `script/deploy.sh` does it in three steps — deploy
+upgradeable, verify the on-chain bytes against the local `.so`, then set the upgrade authority to
+none. It is deliberately not `solana program deploy --final`, which finalises in the same breath as
+the upload: on a bad or truncated upload that leaves a permanently wrong program at the id, unfixable,
+with the vanity id spent. Verifying in between makes the irreversible step conditional on the
+reversible one having worked. `FINALIZE=false` stops after verification if you need to test first.
+
+Why immutable at all: the EVM contract has no upgrade path, so an upgradeable Solana program means
+integrators must trust an upgrade-authority holder on one chain and nobody on the other. See
+[`PARITY.md`](../PARITY.md) row 13a.
 
 `Anchor.toml` carries the id in `[programs.localnet]`, `[programs.devnet]` and
 `[programs.mainnet]` — the same id on every cluster, as in `eco-routes-svm`.
@@ -94,11 +143,10 @@ Undecided, and each is a one-way door:
 
 - [ ] **The `SALT` value for EVM.** It fixes the address on every chain, forever. Pick it once.
 - [ ] **Which chains**, and in what order.
-- [ ] **Solana upgrade authority.** `anchor deploy` leaves the deploying wallet as upgrade
-      authority. Decide whether to transfer it to a multisig, or make the program immutable with
-      `solana program set-upgrade-authority --final` — which cannot be undone. A stateless
-      pass-through is a reasonable candidate for immutability, but that is a decision, not a
-      default.
+- [x] **Solana upgrade authority.** Done. The deployed program is **immutable** — authority set to
+      `none` on 2026-09-03 and confirmed on two independent RPCs. `script/deploy.sh` finalises by
+      default. Nothing further to do; kept here for the record, the command was:
+      `solana program set-upgrade-authority EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw --final`
 - [ ] **An audit.** The repo says "not audited" in every doc; that stays true until it isn't.
 - [ ] **Addresses into the SDK.** `@eco-foundation/delivery` ships no addresses today. Add them
       once deployed, and drop `"private": true` from `ts/package.json` to publish.

@@ -31,7 +31,12 @@ how the balance got there. `deliverNative` / `deliver_sol` do the same for nativ
 TypeScript SDK (`ts/`, `@eco-foundation/delivery`, unpublished) ships call builders whose ABI and IDL
 are generated from the contract build output.
 
-Nothing is deployed to any network. Nothing is audited.
+The EVM contract is deployed, unaudited, to 13 mainnets at
+`0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` (identical address on every chain, via CreateX CREATE2
+with an unguarded salt, so anyone can reproduce it on a new chain). The Solana program is deployed to
+mainnet-beta as `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` and is **immutable** — its upgrade
+authority was set to `none` on 2026-09-03 — matching the EVM contract, which has no upgrade path
+either. Neither side can be patched: a defect in either is permanent. Nothing is audited.
 
 ## Review relevance
 
@@ -45,8 +50,8 @@ holds:
   Is the PDA seed derivation and signing correct?
 - Does anything persist between calls that shouldn't — storage, approvals, delegates, authorities?
 
-Test coverage is 57 EVM tests (including 4096-run fuzzing), 23 SVM tests (including 768 proptest
-cases), and 10 SDK tests. The security-relevant behaviours are pinned by name in the README.
+Test coverage is 59 EVM tests (including 4096-run fuzzing), 28 SVM tests (including 768 proptest
+cases), and 11 SDK tests. The security-relevant behaviours are pinned by name in the README.
 
 ## Integration assumptions
 
@@ -90,6 +95,16 @@ in `README.md` (`## Security notes`) and in the NatSpec of `evm/src/Deliver.sol`
   does not apply.
 - **SVM Token-2022 `TransferHook` mints fail outright** — `transfer_checked` forwards only its four
   accounts. Fail-closed and documented as out of scope. `TransferFee` mints are supported and tested.
+- **SVM Token-2022 `MemoTransfer` recipients are supported, opt-in.** `deliver_token` takes an
+  **optional** SPL Memo program account and emits a memo one CPI before the transfer when it is
+  supplied. This is necessary because Token-2022 validates the preceding *sibling* instruction via
+  `get_processed_sibling_instruction`, which sees only the same CPI stack height — a memo at the top
+  level of the transaction does not satisfy a transfer issued from inside the program, so no caller
+  can work around its absence. Pinned by
+  `deliver_token_token2022_memo_required_recipient_is_rejected` and
+  `deliver_token_token2022_memo_required_succeeds_with_memo_program`. Anchor always occupies the
+  optional slot (encoding "absent" as the program's own id), so a nine-account caller is rejected
+  with `AccountNotEnoughKeys` — pinned by `deliver_token_legacy_nine_account_caller_is_rejected`.
 
 **The one genuine, known hole**, which does not need rediscovering: `min` is checked against the
 balance held **before** the transfer, never against what the recipient receives. A fee-on-transfer,

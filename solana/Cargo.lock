@@ -333,6 +333,7 @@ checksum = "2f698a45d424351ff695df413adcb3fa603f2c791a0b4a937ebcd2e93a052c77"
 dependencies = [
  "anchor-lang",
  "spl-associated-token-account-interface",
+ "spl-memo-interface",
  "spl-pod",
  "spl-token-2022-interface",
  "spl-token-group-interface",
@@ -3989,6 +3990,16 @@ dependencies = [
  "sha2 0.10.9",
  "syn 2.0.119",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spl-memo-interface"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3745d384b0afee980d43d62b66c27bdcbbd03507732b8d3626d3413cb72084f2"
+dependencies = [
+ "solana-instruction",
+ "solana-pubkey 4.3.0",
 ]
 
 [[package]]
