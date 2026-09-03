@@ -33,6 +33,31 @@
     },
     "chainNotes": {
       "143": "monad \u2014 not in eco-chains or eco-swap chaindata; added here. First chain reached purely because the salt is unguarded."
+    },
+    "verified": {
+      "status": "all 13 chains, source published",
+      "verifiedAt": "2026-09-03",
+      "etherscanV2": [
+        1,
+        10,
+        56,
+        130,
+        137,
+        143,
+        146,
+        999,
+        8453,
+        42161,
+        42220
+      ],
+      "routescan": {
+        "9745": "plasmascan.to is Routescan-backed. Verification lands there and is visible on the user-facing explorer, but Etherscan V2's getsourcecode proxy for chain 9745 still reports it unverified. Confirm via https://api.routescan.io/v2/network/mainnet/evm/9745/etherscan/api, not the V2 proxy."
+      },
+      "blockscout": {
+        "57073": "ink - not on Etherscan V2 at all. Verified against https://explorer.inkonchain.com/api/"
+      },
+      "reproduce": "evm/script/verifyAll.sh",
+      "note": "One Etherscan V2 API key covers 11 of the 13; the other two need their own verifier. No constructor arguments, and bytecode_hash=none, so verification is deterministic from foundry.toml alone."
     }
   },
   "svm": {
