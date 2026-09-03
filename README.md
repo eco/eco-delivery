@@ -17,8 +17,10 @@ one primitive, kept behaviourally identical on purpose.
 > `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and to Solana mainnet-beta as
 > `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` — see [`deployments.json`](deployments.json).
 >
-> The EVM contract has **no upgrade path**. The Solana program is currently **upgradeable**, so it
-> carries a trust assumption its EVM twin does not — see [PARITY.md](PARITY.md) row 13a.
+> **Both sides are immutable.** The EVM contract has no upgrade path by construction; the Solana
+> program's upgrade authority was set to `none` on 2026-09-03, irreversibly. Each is trusted on its
+> bytecode alone, with no privileged party on either chain — and neither can ever be patched, so a
+> defect in either is permanent. See [PARITY.md](PARITY.md) row 13a.
 
 - [Why this exists](#why-this-exists) · [The guarantee](#the-guarantee) ·
   [**Integration guide →**](docs/INTEGRATING.md) · [**EVM ↔ SVM parity map →**](PARITY.md)

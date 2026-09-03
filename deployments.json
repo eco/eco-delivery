@@ -40,11 +40,14 @@
     "cluster": "mainnet-beta",
     "deployed": true,
     "programDataAddress": "3fSte1CavfxiGhAPXMWDL7n3M8btL8R9avMAnhemzmos",
-    "upgradeAuthority": "5S5UQS5GrhpVgxmfPBtBXAqMjF11ttZUWkffRg5NTtmn",
-    "immutable": false,
-    "dataLength": 177576,
-    "deploySignature": "2vYX98UecWa2wrAEmayzTtQqTFXT9cYJnsXEv1VQSX4w4cJKV5PCUYwmKFsum4z3zJae2s1NsyfXcFuJDJ3JPcmk",
-    "note": "UPGRADEABLE, and the deployed bytecode PREDATES the optional memo account added for Octane 66f2d780. The deployed program still expects nine accounts on deliver_token, while the SDK in this repo now sends ten, so the SDK will NOT work against this deployment until the program is redeployed. Nothing is integrated yet, so this is safe today - but redeploy before anyone builds against it. Separately, the EVM contract has no upgrade path at all, so this is a real trust asymmetry between the two implementations - see PARITY.md. Make immutable with `solana program set-upgrade-authority --final` (irreversible) only AFTER redeploying, or move the authority to a multisig.",
-    "interfaceVersion": "pre-memo (9 accounts on deliver_token)"
+    "upgradeAuthority": null,
+    "immutable": true,
+    "dataLength": 181352,
+    "deploySignature": "44UXbtgYZBhRUVYWNkVGDGjrW77GYLeDed1NXZwrcW2sbbNuzURQBEgrYR1bVSkYBWKFQ2YTstHJZPubzK321Hsd",
+    "note": "IMMUTABLE. Upgrade authority set to none on 2026-09-03, irreversibly; confirmed on two independent RPCs. Carries the optional SPL Memo account on deliver_token (Octane 66f2d780), so deliver_token takes ten accounts - a client built against the earlier nine-account interface is rejected with AccountNotEnoughKeys. On-chain bytes verified byte-identical to the local build before finalising (sha256 above, first 181352 bytes; the account is allocated larger after `solana program extend`, remainder is zero padding). Both implementations are now final and unchangeable, closing the trust asymmetry formerly recorded in PARITY.md row 13a.",
+    "interfaceVersion": "memo (10 accounts on deliver_token)",
+    "allocatedLength": 193960,
+    "programSha256": "6057b4f34f53868efb0b2c54e5bd2dbf221429c9d54608839d9765bbe162efa5",
+    "lastDeployedSlot": 444085631
   }
 }

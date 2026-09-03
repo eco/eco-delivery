@@ -143,9 +143,9 @@ Undecided, and each is a one-way door:
 
 - [ ] **The `SALT` value for EVM.** It fixes the address on every chain, forever. Pick it once.
 - [ ] **Which chains**, and in what order.
-- [x] **Solana upgrade authority.** Decided: immutable. `script/deploy.sh` finalises by default.
-      **The currently deployed program predates that decision and is still upgradeable**, authority
-      `5S5UQS5GrhpVgxmfPBtBXAqMjF11ttZUWkffRg5NTtmn`. Finalise it with:
+- [x] **Solana upgrade authority.** Done. The deployed program is **immutable** — authority set to
+      `none` on 2026-09-03 and confirmed on two independent RPCs. `script/deploy.sh` finalises by
+      default. Nothing further to do; kept here for the record, the command was:
       `solana program set-upgrade-authority EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw --final`
 - [ ] **An audit.** The repo says "not audited" in every doc; that stays true until it isn't.
 - [ ] **Addresses into the SDK.** `@eco-foundation/delivery` ships no addresses today. Add them

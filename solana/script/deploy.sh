@@ -66,13 +66,19 @@ echo "== 2/3 verify on-chain bytes match the local build =="
 DUMP=$(mktemp -t deliver-onchain).so
 solana program dump "$PROGRAM_ID" "$DUMP" --url "$SOLANA_RPC_URL" >/dev/null
 # `dump` right-pads to the allocated account size, so compare only the first N bytes.
+#
+# Do NOT use `cmp -n N`: BSD cmp reports EOF on the shorter file even when N bytes matched, so it
+# fails whenever the ProgramData account is larger than the program — which is the normal state
+# after `solana program extend`. Hash the prefix instead; it is unambiguous on both cmp flavours.
 LOCAL_LEN=$(stat -f%z "$SO" 2>/dev/null || stat -c%s "$SO")
-if ! cmp -n "$LOCAL_LEN" -s "$SO" "$DUMP"; then
+ONCHAIN_SHA=$(head -c "$LOCAL_LEN" "$DUMP" | shasum -a 256 | cut -d' ' -f1)
+LOCAL_SHA=$(shasum -a 256 < "$SO" | cut -d' ' -f1)
+if [ "$ONCHAIN_SHA" != "$LOCAL_SHA" ]; then
     rm -f "$DUMP"
     fail "on-chain bytes do NOT match the local build — refusing to finalise. The program is still upgradeable; redeploy."
 fi
 rm -f "$DUMP"
-echo "  match: first $LOCAL_LEN bytes identical"
+echo "  match: first $LOCAL_LEN bytes identical (sha256 $LOCAL_SHA)"
 
 if [ "$FINALIZE" != "true" ]; then
     echo
