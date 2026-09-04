@@ -13,7 +13,10 @@ the call succeeds. That is a deliberate, tested carve-out, not an oversight; see
 One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust). Two encodings of
 one primitive, kept behaviourally identical on purpose.
 
-> **Not audited.** Deployed, unaudited, to 13 EVM mainnets at
+> **Security reviewed.** See the
+> [September 2026 Octane Security report](audits/octane_eco_delivery_september2026.pdf).
+>
+> Deployed to 13 EVM mainnets at
 > `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and to Solana mainnet-beta as
 > `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` — see [`deployments.json`](deployments.json).
 > Source is published on the block explorer of all thirteen EVM chains, so you can read exactly
@@ -261,7 +264,7 @@ PARITY.md                                 EVM ↔ SVM behaviour and test map
 ## SDK
 
 Not published yet — the package is marked `private` so `npm publish` refuses it, and the
-contracts are unaudited. Consume it from the repo until there is a release.
+SDK has not been released. Consume it from the repo until there is a release.
 
 ```bash
 npm install @eco-foundation/delivery   # once published
