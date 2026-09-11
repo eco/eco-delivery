@@ -2,7 +2,7 @@ use {
     crate::{constants::VAULT_SEED, error::DeliverError},
     anchor_lang::prelude::*,
     anchor_spl::{
-        associated_token::AssociatedToken,
+        associated_token::{create_idempotent, AssociatedToken, Create},
         memo::{build_memo, BuildMemo, Memo},
         token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
     },
@@ -51,18 +51,25 @@ pub struct DeliverToken<'info> {
     /// key is accepted, including `Pubkey::default()`. It is only used as the ATA authority.
     pub recipient: UncheckedAccount<'info>,
 
-    /// The recipient's associated token account for `mint`.
+    /// CHECK: The recipient's associated token account for `mint`, pinned by address to the
+    /// canonical ATA for `(recipient, mint, token_program)` — so it cannot be substituted, exactly
+    /// as the previous `associated_token::*` constraints guaranteed.
     ///
-    /// Created here if it does not exist, with `payer` funding the rent. This is the interface
-    /// difference from EVM called out in the module docs.
+    /// Created by the handler if it does not exist, with `payer` funding the rent. This is the
+    /// interface difference from EVM called out in the module docs.
+    ///
+    /// It is deliberately **not** `init_if_needed`. That constraint runs during account validation,
+    /// before the handler can look at the balance, so an empty vault would still create this
+    /// account and charge the caller ~0.002 SOL of unrecoverable rent to deliver nothing. Creating
+    /// it in the handler instead means a zero-balance call allocates nothing at all. The account is
+    /// therefore unchecked here and typed only where it is used.
     #[account(
-        init_if_needed,
-        payer = payer,
-        associated_token::mint = mint,
-        associated_token::authority = recipient,
-        associated_token::token_program = token_program,
+        mut,
+        seeds = [recipient.key().as_ref(), token_program.key().as_ref(), mint.key().as_ref()],
+        bump,
+        seeds::program = associated_token_program.key(),
     )]
-    pub recipient_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub recipient_token_account: UncheckedAccount<'info>,
 
     /// SPL Token or Token-2022, whichever owns `mint`.
     ///
@@ -105,8 +112,9 @@ pub struct DeliverToken<'info> {
 /// transit the recipient can be credited less than `min` while this still succeeds; that hole is
 /// accepted and tested, not fixed. See the module docs.
 ///
-/// `amount == 0` is not special-cased: a zero-balance vault with `min == 0` still issues a
-/// zero-amount transfer and succeeds, exactly as `safeTransfer(recipient, 0)` does on EVM.
+/// `amount == 0` returns early and succeeds having done nothing — no transfer, and no recipient
+/// ATA allocated, so an empty call costs the caller a transaction fee and no rent. EVM returns at
+/// the same point for the same reason.
 pub fn handle_deliver_token(ctx: Context<DeliverToken>, min: u64) -> Result<()> {
     // The balance the vault already holds. Includes any dust left behind by a previous flow —
     // sweeping that too is intended, not a leak.
@@ -114,8 +122,35 @@ pub fn handle_deliver_token(ctx: Context<DeliverToken>, min: u64) -> Result<()> 
 
     require!(amount >= min, DeliverError::BalanceBelowMin);
 
+    // Nothing held means nothing to deliver, and the cheapest way to deliver nothing is to do
+    // nothing. Reaching here requires `min == 0`, since any positive floor already failed above.
+    //
+    // Returning here is what makes an empty call free: no recipient ATA is allocated, so the caller
+    // is not charged rent for an account nobody asked for, and no CPI is issued. This is why the
+    // recipient ATA is not `init_if_needed` — that would have allocated it during account
+    // validation, before this line could ever run.
+    if amount == 0 {
+        return Ok(());
+    }
+
     let bump = ctx.bumps.vault_authority;
     let vault_seeds: &[&[u8]] = &[VAULT_SEED, &[bump]];
+
+    // Create the recipient ATA if it is not there yet. Idempotent, so an existing account is left
+    // untouched. This must happen BEFORE the memo below: Token-2022 checks the *immediately*
+    // preceding sibling instruction, and a creation CPI landing between the memo and the transfer
+    // would push the memo out of that position and break memo-required recipients.
+    create_idempotent(CpiContext::new(
+        ctx.accounts.associated_token_program.key(),
+        Create {
+            payer: ctx.accounts.payer.to_account_info(),
+            associated_token: ctx.accounts.recipient_token_account.to_account_info(),
+            authority: ctx.accounts.recipient.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+            token_program: ctx.accounts.token_program.to_account_info(),
+        },
+    ))?;
 
     // Token-2022's `MemoTransfer` extension lets a *recipient* require that every incoming transfer
     // be immediately preceded by a memo. It checks that with the `get_processed_sibling_instruction`

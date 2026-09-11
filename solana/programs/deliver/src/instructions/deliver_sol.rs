@@ -63,6 +63,14 @@ pub fn handle_deliver_sol(ctx: Context<DeliverSol>, min: u64) -> Result<()> {
 
     require!(amount >= min, DeliverError::BalanceBelowMin);
 
+    // Nothing held means nothing to deliver. Reaching here requires `min == 0`, since any positive
+    // floor already failed above. Returning skips a System Program CPI that would move zero
+    // lamports, and mirrors the EVM native path, which likewise returns before calling the
+    // recipient — there, a zero-value call would still execute recipient code.
+    if amount == 0 {
+        return Ok(());
+    }
+
     let bump = ctx.bumps.vault_authority;
     let vault_seeds: &[&[u8]] = &[VAULT_SEED, &[bump]];
 

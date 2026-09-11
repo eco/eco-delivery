@@ -96,8 +96,10 @@ contract DeliverNativeTest is Test {
         assertEq(address(deliver).balance, 0);
     }
 
-    /// @dev Same decision as the ERC-20 path: an empty native delivery with `min == 0` is a
-    ///      successful no-op, a 0-value call.
+    /// @dev Same decision as the ERC-20 path: an empty native delivery with `min == 0` succeeds
+    ///      and makes no call at all. This matters more here than on the token path — a zero-value
+    ///      `call` still *executes* the recipient, so the old form ran arbitrary recipient code to
+    ///      deliver nothing.
     function test_ZeroNativeBalanceWithZeroMinSucceedsAsNoOp() public {
         assertEq(address(deliver).balance, 0);
 
@@ -132,12 +134,16 @@ contract DeliverNativeTest is Test {
         assertEq(address(rejecting).balance, 0);
     }
 
-    /// @dev Even the `min == 0` no-op path fails closed: the 0-value call still has to succeed.
-    function test_RevertWhen_NativeRecipientRejectsZeroValueNoOp() public {
+    /// @dev The empty native delivery no longer calls the recipient, so a recipient that rejects
+    ///      ETH — or one with no `receive()`/`fallback()` at all — no longer turns "there was
+    ///      nothing to deliver" into a failed transaction. Fail-closed still applies whenever there
+    ///      is something to send; see `test_RevertWhen_NativeRecipientRejectsEth` directly above.
+    function test_ZeroNativeBalanceDoesNotCallARejectingRecipient() public {
         RejectingNativeRecipient rejecting = new RejectingNativeRecipient();
 
-        vm.expectRevert(abi.encodeWithSelector(Deliver.NativeTransferFailed.selector, address(rejecting), 0));
         deliver.deliverNative(address(rejecting), 0);
+
+        assertEq(address(rejecting).balance, 0);
     }
 
     function test_DeliversToContractRecipientThatAcceptsEth() public {

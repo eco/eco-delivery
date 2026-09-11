@@ -240,3 +240,25 @@ contract SenderSurchargeERC20 is ERC20 {
         return true;
     }
 }
+
+/// @notice Rejects zero-value transfers. A real, deployed ERC-20 pattern, and the reason a sweep
+///         must not issue `transfer(recipient, 0)` when it holds nothing: doing so turns "there
+///         was no dust" into a reverted transaction.
+contract RejectsZeroTransferERC20 is ERC20 {
+    constructor() ERC20("RejectsZero", "RZ") {}
+
+    function mint(
+        address to,
+        uint256 value
+    ) external {
+        _mint(to, value);
+    }
+
+    function transfer(
+        address to,
+        uint256 amount
+    ) public override returns (bool) {
+        require(amount > 0, "zero transfer");
+        return super.transfer(to, amount);
+    }
+}

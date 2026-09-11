@@ -88,8 +88,13 @@
 //!   The rationale does **not** extend to `deliver_sol`. A System Program lamport transfer emits no
 //!   program event, so a native delivery leaves nothing an indexer can subscribe to — it is visible
 //!   only in the transaction's account balance deltas. EVM's `deliverNative` has the identical gap.
-//! - **Zero balance with `min == 0` succeeds as a no-op.** The transfer is still issued, for exactly
-//!   zero, matching the EVM reference which calls `safeTransfer(recipient, 0)`.
+//! - **Zero balance with `min == 0` succeeds, and costs nothing.** The handler returns before any
+//!   CPI, so no `transfer_checked` is issued and — the part that matters on SVM — **no recipient
+//!   ATA is allocated**. The recipient ATA is deliberately not `init_if_needed`: that constraint
+//!   runs during account validation, before the balance can be read, so an empty vault would still
+//!   allocate the account and charge the caller ~0.002 SOL of unrecoverable rent to deliver
+//!   nothing. It is created in the handler instead, only once there is something to send. EVM
+//!   returns at the same point, for the same reason.
 //! - **The vault token account is NOT closed after a sweep.** Its rent stays locked so the same
 //!   vault ATA can be reused by the next flow without a re-creation cost. The vault authority PDA
 //!   itself, by contrast, *is* reaped by `deliver_sol` (a full lamport drain leaves zero).
@@ -142,7 +147,7 @@ use anchor_lang::prelude::*;
 pub use constants::*;
 pub use instructions::*;
 
-declare_id!("EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw");
+declare_id!("Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ");
 
 #[program]
 pub mod deliver {

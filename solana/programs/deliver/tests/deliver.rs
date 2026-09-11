@@ -456,18 +456,48 @@ fn deliver_token_zero_balance_with_min_zero_succeeds_as_a_noop() {
     // Vault ATA exists but holds nothing.
     assert_eq!(token_balance(&f.svm, &f.vault_ata), 0);
 
+    let payer_before = f.svm.get_balance(&f.payer.pubkey()).unwrap();
     let meta = f.deliver(&recipient, 0).unwrap();
 
-    // A zero-amount transfer is still *issued* — not skipped — matching EVM's
-    // `safeTransfer(recipient, 0)`. The token program logs the instruction it ran.
+    // No transfer is issued at all. Nothing held means nothing to deliver, and the cheapest way to
+    // deliver nothing is to do nothing. Matches EVM, which also returns before calling the token.
     assert!(
-        meta.logs
+        !meta
+            .logs
             .iter()
             .any(|l| l.contains("Instruction: TransferChecked")),
-        "expected a real zero-amount TransferChecked, got {:#?}",
+        "a zero delivery must issue no transfer, got {:#?}",
         meta.logs
     );
-    assert_eq!(token_balance(&f.svm, &f.recipient_ata(&recipient)), 0);
+
+    // And — the reason this matters on SVM specifically — no recipient ATA is allocated, so the
+    // caller is not charged rent for an account nobody asked for. Under the old `init_if_needed`
+    // form this cost the caller 2_039_280 lamports to deliver nothing, unrecoverably, on every
+    // call against an empty vault.
+    assert!(
+        !account_exists(&f.svm, &f.recipient_ata(&recipient)),
+        "a zero delivery must not allocate the recipient ATA"
+    );
+    let paid = payer_before - f.svm.get_balance(&f.payer.pubkey()).unwrap();
+    assert!(
+        paid < 100_000,
+        "a zero delivery must cost about a transaction fee, paid {paid} lamports"
+    );
+}
+
+/// The rent saving, stated as a number rather than an inequality: an empty call costs the caller
+/// the transaction fee and nothing else.
+#[test]
+fn deliver_token_zero_balance_allocates_nothing_and_charges_only_the_fee() {
+    let mut f = spl_fixture();
+    let recipient = Pubkey::new_unique();
+
+    let before = f.svm.get_balance(&f.payer.pubkey()).unwrap();
+    f.deliver(&recipient, 0).unwrap();
+    let paid = before - f.svm.get_balance(&f.payer.pubkey()).unwrap();
+
+    assert_eq!(paid, 5_000, "transaction fee only — no ATA rent");
+    assert!(!account_exists(&f.svm, &f.recipient_ata(&recipient)));
 }
 
 #[test]
@@ -895,6 +925,12 @@ proptest! {
             // A reverted delivery is atomic: the vault keeps everything and no ATA was created.
             prop_assert_eq!(token_balance(&f.svm, &f.vault_ata), balance);
             prop_assert!(!account_exists(&f.svm, &recipient_ata));
+        } else if balance == 0 {
+            // Reaching here means `min == 0` too. The call succeeds having done nothing at all:
+            // no transfer, and crucially no recipient ATA allocated, so no rent is charged.
+            prop_assert!(res.is_ok(), "empty vault with min 0 must succeed: {rendered}");
+            prop_assert!(!account_exists(&f.svm, &recipient_ata));
+            prop_assert_eq!(token_balance(&f.svm, &f.vault_ata), 0);
         } else {
             prop_assert!(res.is_ok(), "balance {} >= min {} must succeed: {rendered}", balance, min);
             prop_assert_eq!(token_balance(&f.svm, &recipient_ata), balance);
