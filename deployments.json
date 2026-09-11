@@ -1,11 +1,13 @@
 {
   "evm": {
-    "address": "0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673",
+    "address": "0x1495C5E67220bb6919800C9d1d8C47f27d3Ae62a",
     "contract": "evm/src/Deliver.sol:Deliver",
+    "version": "v2.0.0",
     "mechanism": "CreateX CREATE2, unguarded salt",
     "createx": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
     "salt": "0x0000000000000000000000000000000000000000000000000000000000000001",
-    "runtimeCodeHash": "0xe26b864ed88ca7ee6ed942372665ec7341f4f93ebfd83789afc6a126e6200d4d",
+    "initCodeHash": "0xfce8c51a76e62d76cc20492e9d66ed9103a89a9c153746ff8fdfdc13df74b880",
+    "runtimeCodeHash": "0x26d5447372775787775ea1fa0e607bcfe62da6abced8b9408786f6ebbf0c18f1",
     "compiler": {
       "solc": "0.8.28",
       "optimizer": true,
@@ -36,7 +38,7 @@
     },
     "verified": {
       "status": "all 13 chains, source published",
-      "verifiedAt": "2026-09-03",
+      "verifiedAt": "2026-09-11",
       "etherscanV2": [
         1,
         10,
@@ -51,28 +53,59 @@
         42220
       ],
       "routescan": {
-        "9745": "plasmascan.to is Routescan-backed. Verification lands there and is visible on the user-facing explorer, but Etherscan V2's getsourcecode proxy for chain 9745 still reports it unverified. Confirm via https://api.routescan.io/v2/network/mainnet/evm/9745/etherscan/api, not the V2 proxy."
+        "9745": "plasmascan.to is Routescan-backed. Etherscan V2's getsourcecode proxy for chain 9745 reports it unverified even when it is; confirm via https://api.routescan.io/v2/network/mainnet/evm/9745/etherscan/api."
       },
       "blockscout": {
-        "57073": "ink - not on Etherscan V2 at all. Verified against https://explorer.inkonchain.com/api/"
+        "57073": "ink - not on Etherscan V2. Verified against https://explorer.inkonchain.com/api/"
       },
-      "reproduce": "evm/script/verifyAll.sh",
-      "note": "One Etherscan V2 API key covers 11 of the 13; the other two need their own verifier. No constructor arguments, and bytecode_hash=none, so verification is deterministic from foundry.toml alone."
+      "reproduce": "evm/script/verifyAll.sh (reads the address and chain list from this file)"
     }
   },
   "svm": {
-    "programId": "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw",
+    "programId": "Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ",
     "cluster": "mainnet-beta",
+    "version": "v2.0.0",
     "deployed": true,
-    "programDataAddress": "3fSte1CavfxiGhAPXMWDL7n3M8btL8R9avMAnhemzmos",
-    "upgradeAuthority": null,
-    "immutable": true,
-    "dataLength": 181352,
-    "deploySignature": "44UXbtgYZBhRUVYWNkVGDGjrW77GYLeDed1NXZwrcW2sbbNuzURQBEgrYR1bVSkYBWKFQ2YTstHJZPubzK321Hsd",
-    "note": "IMMUTABLE. Upgrade authority set to none on 2026-09-03, irreversibly; confirmed on two independent RPCs. Carries the optional SPL Memo account on deliver_token (Octane 66f2d780), so deliver_token takes ten accounts - a client built against the earlier nine-account interface is rejected with AccountNotEnoughKeys. On-chain bytes verified byte-identical to the local build before finalising (sha256 above, first 181352 bytes; the account is allocated larger after `solana program extend`, remainder is zero padding). Both implementations are now final and unchangeable, closing the trust asymmetry formerly recorded in PARITY.md row 13a.",
+    "programDataAddress": "D9fvKb9kKXdVANbVUXv27scYiLfGsNWwTvNH9X4TizeG",
+    "upgradeAuthority": "5S5UQS5GrhpVgxmfPBtBXAqMjF11ttZUWkffRg5NTtmn",
+    "immutable": false,
     "interfaceVersion": "memo (10 accounts on deliver_token)",
-    "allocatedLength": 193960,
-    "programSha256": "6057b4f34f53868efb0b2c54e5bd2dbf221429c9d54608839d9765bbe162efa5",
-    "lastDeployedSlot": 444085631
+    "dataLength": 170912,
+    "programSha256": "ad684122c9b3af6d805afa0853ccc574cff8ff6720902a4e6e3b93dc03b23055",
+    "lastDeployedSlot": 446182040,
+    "deploySignature": "66HNLNbX1sA7PWMvZpFHL8hdN7whdmUePkH5HqYxn5ufM9zJzM4hfZSAiwyeiQamFx82DuEzHTWyH4kj46Du7aJR",
+    "note": "UPGRADEABLE, deliberately. v1 was finalised and then had to be replaced at a new program id to fix the empty-delivery rent bug, which is the cost of finalising while review is still in progress. This one stays upgradeable until that review is done. Finalise with `solana program set-upgrade-authority --final` (irreversible). Note the ProgramData account is allocated at exactly the program length, so a larger future build needs `solana program extend` first."
+  },
+  "superseded": {
+    "note": "v1. Both are still live and still work; neither can be changed - the EVM contract has no upgrade path and the Solana program was finalised. They issue a transfer even when they hold nothing, which burns gas on EVM, reverts on ERC-20s that reject zero-value transfers, and on Solana allocates the recipient ATA anyway - charging the caller 2039280 lamports of unrecoverable rent to deliver nothing. Do not point new integrations at these; if you already do, never call them with min == 0.",
+    "evm": {
+      "address": "0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673",
+      "runtimeCodeHash": "0xe26b864ed88ca7ee6ed942372665ec7341f4f93ebfd83789afc6a126e6200d4d",
+      "chains": [
+        1,
+        10,
+        56,
+        130,
+        137,
+        143,
+        146,
+        999,
+        8453,
+        9745,
+        42161,
+        42220,
+        57073
+      ],
+      "verified": true,
+      "immutable": true
+    },
+    "svm": {
+      "programId": "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw",
+      "programDataAddress": "3fSte1CavfxiGhAPXMWDL7n3M8btL8R9avMAnhemzmos",
+      "immutable": true,
+      "upgradeAuthority": null,
+      "programSha256": "6057b4f34f53868efb0b2c54e5bd2dbf221429c9d54608839d9765bbe162efa5",
+      "lastDeployedSlot": 444085631
+    }
   }
 }

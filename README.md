@@ -14,15 +14,19 @@ One implementation for EVM (Foundry/Solidity), one for SVM/Solana (Anchor/Rust).
 one primitive, kept behaviourally identical on purpose.
 
 > **Not audited.** Deployed, unaudited, to 13 EVM mainnets at
-> `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and to Solana mainnet-beta as
-> `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` — see [`deployments.json`](deployments.json).
+> `0x1495C5E67220bb6919800C9d1d8C47f27d3Ae62a` and to Solana mainnet-beta as
+> `Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ` — see [`deployments.json`](deployments.json).
 > Source is published on the block explorer of all thirteen EVM chains, so you can read exactly
 > what is deployed rather than taking this repo's word for it.
 >
-> **Both sides are immutable.** The EVM contract has no upgrade path by construction; the Solana
-> program's upgrade authority was set to `none` on 2026-09-03, irreversibly. Each is trusted on its
-> bytecode alone, with no privileged party on either chain — and neither can ever be patched, so a
-> defect in either is permanent. See [PARITY.md](PARITY.md) row 13a.
+> **The EVM contract is immutable** by construction. **The Solana program is upgradeable**, so a
+> Solana integrator trusts the upgrade-authority holder as well as the code. That asymmetry is
+> deliberate while review is in progress — v1 was finalised and the next real bug then required a
+> move to a new program id. See [PARITY.md](PARITY.md) row 13a.
+>
+> **v1 is superseded.** `0xAd8a3c37…` and `EcoyzRRw…` are still live and still work, but they issue
+> a transfer even when holding nothing — which on Solana charges the caller ~0.002 SOL of
+> unrecoverable rent per empty call. Do not point new integrations at them.
 
 - [Why this exists](#why-this-exists) · [The guarantee](#the-guarantee) ·
   [**Integration guide →**](docs/INTEGRATING.md) · [**EVM ↔ SVM parity map →**](PARITY.md)

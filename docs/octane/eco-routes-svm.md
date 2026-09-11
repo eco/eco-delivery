@@ -29,7 +29,7 @@ atomically: a failed CPI aborts the entire transaction and the calling program h
 ## Review relevance
 
 `eco-routes-svm` is the **intended caller** of `eco-delivery`'s Solana program (`deliver`, program id
-`EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw`). It is in scope as the source of the properties
+`Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ`). It is in scope as the source of the properties
 `eco-delivery` depends on and cannot enforce itself, and for nothing else.
 
 The `deliver` program is stateless and permissionless: no admin, no allowlist, and no program state

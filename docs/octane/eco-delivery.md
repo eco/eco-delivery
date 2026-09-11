@@ -32,12 +32,13 @@ TypeScript SDK (`ts/`, `@eco-foundation/delivery`, unpublished) ships call build
 are generated from the contract build output.
 
 The EVM contract is deployed, unaudited, to 13 mainnets at
-`0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` (identical address on every chain, via CreateX CREATE2
+`0x1495C5E67220bb6919800C9d1d8C47f27d3Ae62a` (identical address on every chain, via CreateX CREATE2
 with an unguarded salt, so anyone can reproduce it on a new chain; source is published on the
 block explorer of all thirteen). The Solana program is deployed to
-mainnet-beta as `EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw` and is **immutable** — its upgrade
-authority was set to `none` on 2026-09-03 — matching the EVM contract, which has no upgrade path
-either. Neither side can be patched: a defect in either is permanent. Nothing is audited.
+mainnet-beta as `Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ` and is **upgradeable** (authority
+`5S5UQS5Grhp…NTtmn`), unlike the EVM contract, which has no upgrade path. A superseded v1 of both
+remains live and immutable at `0xAd8a3c3745633280FaFb0f44D0C2cc2c48475673` and
+`EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw`; new work should target the addresses above. Nothing is audited.
 
 ## Review relevance
 

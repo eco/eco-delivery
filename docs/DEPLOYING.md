@@ -100,7 +100,7 @@ network was touched.
 
 ## Solana
 
-The program id is **`EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw`**, a ground vanity key matching
+The program id is **`Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ`**, a ground vanity key matching
 the `Eco…` convention used by the programs in `eco-routes-svm`. It replaces the throwaway id that
 `anchor init` generated.
 
@@ -125,7 +125,7 @@ integrators must trust an upgrade-authority holder on one chain and nobody on th
 
 ### The program keypair is not in this repo
 
-`solana/keys/EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw.json` is **gitignored** (as program
+`solana/keys/Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ.json` is **gitignored** (as program
 keypairs are in `eco-routes-svm`), and a copy sits at `solana/target/deploy/deliver-keypair.json`
 where `anchor deploy` expects it — also gitignored.
 
@@ -143,10 +143,11 @@ Undecided, and each is a one-way door:
 
 - [ ] **The `SALT` value for EVM.** It fixes the address on every chain, forever. Pick it once.
 - [ ] **Which chains**, and in what order.
-- [x] **Solana upgrade authority.** Done. The deployed program is **immutable** — authority set to
-      `none` on 2026-09-03 and confirmed on two independent RPCs. `script/deploy.sh` finalises by
-      default. Nothing further to do; kept here for the record, the command was:
-      `solana program set-upgrade-authority EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw --final`
+- [ ] **Solana upgrade authority.** Currently **upgradeable**, on purpose. v1 was finalised and the
+      next real bug then forced a move to a new program id, so this one stays upgradeable until
+      review is finished. `script/deploy.sh` finalises by default; pass `FINALIZE=false` to keep it
+      open, as the v2 deploy did. Finalise with:
+      `solana program set-upgrade-authority Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ --final`
 - [x] **Explorer verification.** Done, all 13 chains, 2026-09-03. Reproduce with
       `evm/script/verifyAll.sh`. Three verifiers are needed: one Etherscan V2 key covers 11 chains,
       Plasma (9745) goes through Routescan, and Ink (57073) through Blockscout. **Note that
