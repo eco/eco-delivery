@@ -346,8 +346,10 @@ so `deliver_token` can never be tricked into a lamport sweep.
 - **Any balance left in the contract is claimable by the next caller, for any recipient they
   choose.** Pinned by `test_AnyoneCanDivertAStrandedBalance`. This is
   [the one rule](#the-one-rule-fund-and-deliver-atomically).
-- **A zero balance with `min == 0` succeeds as a no-op** on both VMs and both asset paths, rather
-  than reverting. It is a deliberate choice, matched across the two, and tested.
+- **A zero balance with `min == 0` succeeds and costs nothing** on both VMs and both asset paths.
+  Neither side issues a transfer, and on SVM no recipient ATA is allocated — so a speculative sweep
+  that finds nothing pays a transaction fee and no more. Do not pass `min == 0` on a route, though;
+  `min` is your floor, and a route that delivers nothing should fail it.
 - **On SVM, `deliver_token` can cost the caller ATA rent** (~0.002 SOL, unrefunded) when the
   recipient's associated token account does not yet exist. There is no EVM analogue. Any caller can
   force that cost on themselves for an arbitrary recipient.

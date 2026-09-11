@@ -150,7 +150,8 @@ contract Deliver {
     /// @notice Deliver this contract's entire balance of `token` to `recipient`, requiring at least
     ///         `min`.
     /// @dev Reverts with {BalanceBelowMin} if the held balance is below `min`. A held balance of 0
-    ///      with `min == 0` succeeds as a no-op transfer of 0 — that is intentional and tested.
+    ///      with `min == 0` succeeds **without issuing a transfer at all** — nothing held means
+    ///      nothing to deliver, and the cheapest way to deliver nothing is to do nothing.
     ///
     ///      If `token` is `address(0)` or {NATIVE_SENTINEL}, this dispatches to the native path and
     ///      sweeps ETH instead. Read the contract-level `address(0)` WARNING before relying on that.
@@ -174,6 +175,13 @@ contract Deliver {
         uint256 balance = token.balanceOf(address(this));
         if (balance < min) revert BalanceBelowMin(balance, min);
 
+        // Nothing held means nothing to deliver, and the cheapest way to deliver nothing is to do
+        // nothing. Reaching here requires `min == 0`, since any positive floor already reverted.
+        // Issuing `transfer(recipient, 0)` instead would burn gas on a no-op and, worse, revert on
+        // the ERC-20s that reject zero-value transfers — turning a successful "there was no dust"
+        // into a failed call.
+        if (balance == 0) return;
+
         token.safeTransfer(recipient, balance);
     }
 
@@ -182,8 +190,8 @@ contract Deliver {
     /// @dev The direct native entry point; {deliverToken} routes here for the two native sentinels.
     ///      Reverts with {BalanceBelowMin} if the held balance is below `min`, and with
     ///      {NativeTransferFailed} if the send fails — it fails closed, it never swallows a failed
-    ///      send. A balance of 0 with `min == 0` succeeds as a no-op 0-value call, mirroring the
-    ///      ERC-20 path.
+    ///      send. A balance of 0 with `min == 0` succeeds without calling the recipient at all,
+    ///      mirroring the ERC-20 path — a zero-value `call` would still execute recipient code.
     /// @param recipient The address that receives the entire ETH balance. All remaining gas is
     ///        forwarded, so a contract recipient may execute arbitrary logic, including re-entering
     ///        this contract — where it will find a zero balance.
@@ -204,6 +212,11 @@ contract Deliver {
     ) internal {
         uint256 balance = address(this).balance;
         if (balance < min) revert BalanceBelowMin(balance, min);
+
+        // As on the ERC-20 path. This one matters more: a zero-value `call` still *executes* the
+        // recipient, so without this a delivery of nothing would run arbitrary recipient code, and
+        // would revert outright for a recipient that has neither `receive()` nor `fallback()`.
+        if (balance == 0) return;
 
         (bool ok,) = recipient.call{value: balance}("");
         if (!ok) revert NativeTransferFailed(recipient, balance);

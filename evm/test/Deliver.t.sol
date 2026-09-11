@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Deliver} from "../src/Deliver.sol";
-import {MockERC20} from "./mocks/MockTokens.sol";
+import {MockERC20, RejectsZeroTransferERC20} from "./mocks/MockTokens.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -94,17 +94,42 @@ contract DeliverTest is Test {
         assertEq(token.balanceOf(address(deliver)), 0);
     }
 
-    /// @dev Decision: an empty delivery with `min == 0` succeeds as a no-op transfer of 0, exactly
-    ///      like the reference implementation. It is not rejected.
+    /// @dev Decision: an empty delivery with `min == 0` succeeds, and does so **without issuing a
+    ///      transfer at all**. Nothing held means nothing to deliver, and the cheapest way to
+    ///      deliver nothing is to do nothing.
+    ///
+    ///      The earlier form called `transfer(recipient, 0)`, which burnt gas on a no-op and
+    ///      reverted outright on the ERC-20s that reject zero-value transfers — turning "there was
+    ///      no dust" into a failed call. `test_ZeroBalanceDoesNotTouchTheToken` pins the absence of
+    ///      the call, which is the part that matters.
     function test_ZeroBalanceWithZeroMinSucceedsAsNoOp() public {
         assertEq(token.balanceOf(address(deliver)), 0);
 
-        vm.expectEmit(true, true, true, true, address(token));
-        emit Transfer(address(deliver), recipient, 0);
         deliver.deliverToken(IERC20(address(token)), recipient, 0);
 
         assertEq(token.balanceOf(recipient), 0, "a no-op must move nothing");
         assertEq(token.balanceOf(address(deliver)), 0);
+    }
+
+    /// @dev The no-op must not reach the token at all — not even to transfer zero.
+    function test_ZeroBalanceDoesNotTouchTheToken() public {
+        assertEq(token.balanceOf(address(deliver)), 0);
+
+        vm.recordLogs();
+        deliver.deliverToken(IERC20(address(token)), recipient, 0);
+        assertEq(vm.getRecordedLogs().length, 0, "a zero delivery must emit no Transfer");
+    }
+
+    /// @dev The consequence that makes this worth doing: a token that rejects zero-value transfers
+    ///      is still deliverable, and an empty sweep of one still succeeds instead of reverting.
+    function test_ZeroBalanceSucceedsOnATokenThatRejectsZeroTransfers() public {
+        RejectsZeroTransferERC20 picky = new RejectsZeroTransferERC20();
+
+        deliver.deliverToken(IERC20(address(picky)), recipient, 0);
+
+        picky.mint(address(deliver), 500e18);
+        deliver.deliverToken(IERC20(address(picky)), recipient, 500e18);
+        assertEq(picky.balanceOf(recipient), 500e18, "and a real balance still delivers");
     }
 
     function test_RevertWhen_ZeroBalanceAndPositiveMin() public {

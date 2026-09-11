@@ -90,7 +90,10 @@ in `README.md` (`## Security notes`) and in the NatSpec of `evm/src/Deliver.sol`
 - **No events.** On the ERC-20 path the token's own `Transfer` log carries `(recipient, amount)`.
   On the **native** path nothing is emitted at all, so native deliveries are trace-only — a known
   asymmetry, documented, not an oversight.
-- **A zero balance with `min == 0` succeeds as a no-op** on both VMs rather than reverting.
+- **A zero balance with `min == 0` succeeds and does no work** on both VMs — no transfer is issued,
+  and on SVM no recipient ATA is allocated, so an empty call costs a transaction fee and nothing
+  more. The recipient ATA is deliberately created in the handler rather than by `init_if_needed`,
+  because that constraint allocates during account validation before the balance can be read.
 - **SVM `init_if_needed`** on the recipient ATA charges the permissionless caller unrefunded rent.
   The ATA constraints pin mint, authority and token program, so the usual re-initialization concern
   does not apply.

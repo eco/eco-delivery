@@ -7,13 +7,13 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-deliver = "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw"
+deliver = "Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ"
 
 [programs.devnet]
-deliver = "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw"
+deliver = "Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ"
 
 [programs.mainnet]
-deliver = "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw"
+deliver = "Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ"
 
 [provider]
 cluster = "localnet"

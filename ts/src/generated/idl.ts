@@ -3,7 +3,7 @@
 
 /** Anchor IDL of `solana/programs/deliver`, straight from the anchor build output. */
 export const deliverIdl = {
-  "address": "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw",
+  "address": "Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ",
   "metadata": {
     "name": "deliver",
     "version": "0.1.0",
@@ -216,10 +216,17 @@ export const deliverIdl = {
         {
           "name": "recipient_token_account",
           "docs": [
-            "The recipient's associated token account for `mint`.",
+            "canonical ATA for `(recipient, mint, token_program)` — so it cannot be substituted, exactly",
+            "as the previous `associated_token::*` constraints guaranteed.",
             "",
-            "Created here if it does not exist, with `payer` funding the rent. This is the interface",
-            "difference from EVM called out in the module docs."
+            "Created by the handler if it does not exist, with `payer` funding the rent. This is the",
+            "interface difference from EVM called out in the module docs.",
+            "",
+            "It is deliberately **not** `init_if_needed`. That constraint runs during account validation,",
+            "before the handler can look at the balance, so an empty vault would still create this",
+            "account and charge the caller ~0.002 SOL of unrecoverable rent to deliver nothing. Creating",
+            "it in the handler instead means a zero-balance call allocates nothing at all. The account is",
+            "therefore unchecked here and typed only where it is used."
           ],
           "writable": true,
           "pda": {
@@ -238,41 +245,8 @@ export const deliverIdl = {
               }
             ],
             "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
+              "kind": "account",
+              "path": "associated_token_program"
             }
           }
         },
@@ -350,4 +324,4 @@ export const deliverIdl = {
 export type DeliverIdl = typeof deliverIdl;
 
 /** Program id the IDL was built with. Override it if you deploy your own instance. */
-export const DELIVER_PROGRAM_ID = "EcoyzRRwsSsFz6i4YU6r28WGD9mamCtRi4Zc8w78FNjw" as const;
+export const DELIVER_PROGRAM_ID = "Eco7HtjQVybAEZZS9y8C1EZ7N3fvokNYPbaP8pXe2iGQ" as const;

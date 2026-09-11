@@ -193,6 +193,21 @@ left as a claim.
 If you cannot model the fee, enforce the received amount yourself by measuring the recipient's
 balance delta in your own contract, or keep that asset off this path.
 
+### `min == 0` means "whatever is there, including nothing"
+
+On a route, **never pass `min == 0`.** `min` is your floor; a route that produced no output should
+fail it, not report a successful delivery of nothing. Pass the floor you quoted.
+
+`min == 0` is for the other use: sweeping whatever happens to be sitting in the contract, with no
+expectation about the amount. That is supported and cheap — if the contract holds nothing, both
+implementations return before doing any work. No transfer is issued, and on Solana no recipient ATA
+is allocated, so an empty sweep costs a transaction fee and nothing else.
+
+This was not always true. The first deployment issued `transfer(recipient, 0)` regardless, which
+burned gas, reverted outright on ERC-20s that reject zero-value transfers, and on Solana allocated
+the recipient ATA anyway — charging the caller 2,039,280 lamports of unrecoverable rent to deliver
+nothing. If you are pointing at the earlier addresses, check the balance yourself before calling.
+
 ## 5. Failure modes and what they mean
 
 | Failure | VM | What actually happened |

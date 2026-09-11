@@ -90,7 +90,9 @@ contract DeliverReentrancyTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     /// @dev ETH is sent before the recipient's code runs, so a re-entrant recipient also finds a
-    ///      zero balance. The re-entrant call is a 0-value no-op; the recipient is paid exactly once.
+    ///      zero balance. The re-entrant call succeeds as a no-op — and now returns *before* making
+    ///      any call, so it does not enter the recipient a second time. The recipient is paid
+    ///      exactly once and executed exactly once.
     function test_NativeReentrancyFindsZeroBalance() public {
         ReentrantNativeRecipient attacker = new ReentrantNativeRecipient(deliver, 0);
         vm.deal(address(deliver), 5 ether);
@@ -102,7 +104,7 @@ contract DeliverReentrancyTest is Test {
         assertFalse(attacker.reentrantCallReverted(), "min == 0 re-entry is a successful no-op");
 
         assertEq(attacker.totalReceived(), 5 ether, "paid exactly once");
-        assertEq(attacker.receiveCount(), 2, "the second entry is the 0-value no-op");
+        assertEq(attacker.receiveCount(), 1, "the re-entrant no-op must not call the recipient again");
         assertEq(address(attacker).balance, 5 ether);
         assertEq(address(deliver).balance, 0, "no ETH left behind and none conjured");
     }
